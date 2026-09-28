@@ -1,3 +1,9 @@
+from app.schemas.auth import (
+    LoginRequest,
+    RefreshTokenRequest,
+    TokenPayload,
+    TokenResponse,
+)
 from app.schemas.task import (
     SortOrder,
     TaskBase,
@@ -6,6 +12,11 @@ from app.schemas.task import (
     TaskResponse,
     TaskSortBy,
     TaskUpdate,
+)
+from app.schemas.user import (
+    UserBase,
+    UserCreate,
+    UserResponse,
 )
 
 __all__ = [
@@ -16,4 +27,11 @@ __all__ = [
     "TaskListResponse",
     "TaskSortBy",
     "SortOrder",
+    "UserBase",
+    "UserCreate",
+    "UserResponse",
+    "LoginRequest",
+    "TokenResponse",
+    "RefreshTokenRequest",
+    "TokenPayload",
 ]

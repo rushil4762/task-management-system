@@ -9,6 +9,7 @@ from app.schemas.task import TaskCreate, TaskUpdate
 
 async def create_task(
     db: AsyncSession,
+    user_id: int,
     task_data: TaskCreate,
 ) -> Task:
     task = Task(
@@ -16,6 +17,7 @@ async def create_task(
         description=task_data.description,
         status=task_data.status,
         priority=task_data.priority,
+        user_id=user_id,
     )
     return await task_repository.create_task(db, task)
 
@@ -23,15 +25,18 @@ async def create_task(
 async def get_task(
     db: AsyncSession,
     task_id: int,
+    user_id: int,
 ) -> Task | None:
     return await task_repository.get_task_by_id(
-        db,
-        task_id,
+        db=db,
+        task_id=task_id,
+        user_id=user_id,
     )
 
 
 async def get_tasks(
     db: AsyncSession,
+    user_id: int,
     limit: int = 10,
     offset: int = 0,
     status: TaskStatus | None = None,
@@ -41,6 +46,7 @@ async def get_tasks(
 ) -> tuple[list[Task], int]:
     return await task_repository.get_tasks(
         db=db,
+        user_id=user_id,
         limit=limit,
         offset=offset,
         status=status,
@@ -53,14 +59,21 @@ async def get_tasks(
 async def update_task(
     db: AsyncSession,
     task: Task | int,
+    user_id: int,
     task_data: TaskUpdate,
 ) -> Task | None:
     task_entity: Task | None
     if isinstance(task, int):
-        task_entity = await task_repository.get_task_by_id(db, task)
+        task_entity = await task_repository.get_task_by_id(
+            db=db,
+            task_id=task,
+            user_id=user_id,
+        )
         if task_entity is None:
             return None
     else:
+        if task.user_id != user_id:
+            return None
         task_entity = task
 
     update_data = task_data.model_dump(
@@ -81,13 +94,20 @@ async def update_task(
 async def delete_task(
     db: AsyncSession,
     task: Task | int,
+    user_id: int,
 ) -> bool:
     task_entity: Task | None
     if isinstance(task, int):
-        task_entity = await task_repository.get_task_by_id(db, task)
+        task_entity = await task_repository.get_task_by_id(
+            db=db,
+            task_id=task,
+            user_id=user_id,
+        )
         if task_entity is None:
             return False
     else:
+        if task.user_id != user_id:
+            return False
         task_entity = task
 
     await task_repository.delete_task(

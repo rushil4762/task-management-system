@@ -1,10 +1,14 @@
 from datetime import datetime, timezone
 from enum import Enum
+from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum as SQLEnum, Index, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
 class TaskStatus(str, Enum):
@@ -57,6 +61,12 @@ class Task(Base):
         index=True,
     )
 
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -73,5 +83,10 @@ class Task(Base):
         nullable=False,
     )
 
+    user: Mapped["User"] = relationship(
+        "User",
+        back_populates="tasks",
+    )
+
     def __repr__(self) -> str:
-        return f"<Task id={self.id} title={self.title!r} status={self.status}>"
+        return f"<Task id={self.id} title={self.title!r} status={self.status} user_id={self.user_id}>"

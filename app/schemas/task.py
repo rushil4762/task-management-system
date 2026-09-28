@@ -85,6 +85,7 @@ class TaskResponse(BaseModel):
     description: str | None
     status: TaskStatus
     priority: TaskPriority
+    user_id: int
     created_at: datetime
     updated_at: datetime
 

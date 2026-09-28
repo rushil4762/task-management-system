@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.dependencies import get_current_user
 from app.models.task import TaskPriority, TaskStatus
+from app.models.user import User
 from app.schemas.task import (
     SortOrder,
     TaskCreate,
@@ -23,14 +25,16 @@ router = APIRouter(
     "",
     response_model=TaskResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create a new task",
+    summary="Create a new task for the authenticated user",
 )
 async def create_task(
     task_data: TaskCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     return await task_service.create_task(
         db=db,
+        user_id=current_user.id,
         task_data=task_data,
     )
 
@@ -38,7 +42,7 @@ async def create_task(
 @router.get(
     "",
     response_model=TaskListResponse,
-    summary="List tasks with filtering, sorting, and pagination",
+    summary="List authenticated user's tasks with filtering, sorting, and pagination",
 )
 async def get_tasks(
     limit: int = Query(
@@ -70,10 +74,12 @@ async def get_tasks(
         default=SortOrder.DESC,
         description="Sort direction (asc or desc)",
     ),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     tasks, total = await task_service.get_tasks(
         db=db,
+        user_id=current_user.id,
         limit=limit,
         offset=offset,
         status=status_filter,
@@ -93,15 +99,17 @@ async def get_tasks(
 @router.get(
     "/{task_id}",
     response_model=TaskResponse,
-    summary="Get a task by ID",
+    summary="Get an owned task by ID",
 )
 async def get_task(
     task_id: int = Path(..., ge=1, description="Unique integer ID of the task"),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     task = await task_service.get_task(
         db=db,
         task_id=task_id,
+        user_id=current_user.id,
     )
 
     if task is None:
@@ -116,21 +124,23 @@ async def get_task(
 @router.put(
     "/{task_id}",
     response_model=TaskResponse,
-    summary="Update a task by ID",
+    summary="Update an owned task by ID",
 )
 @router.patch(
     "/{task_id}",
     response_model=TaskResponse,
-    summary="Partially update a task by ID",
+    summary="Partially update an owned task by ID",
 )
 async def update_task(
     task_data: TaskUpdate,
     task_id: int = Path(..., ge=1, description="Unique integer ID of the task"),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     updated_task = await task_service.update_task(
         db=db,
         task=task_id,
+        user_id=current_user.id,
         task_data=task_data,
     )
 
@@ -146,15 +156,17 @@ async def update_task(
 @router.delete(
     "/{task_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete a task by ID",
+    summary="Delete an owned task by ID",
 )
 async def delete_task(
     task_id: int = Path(..., ge=1, description="Unique integer ID of the task"),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     deleted = await task_service.delete_task(
         db=db,
         task=task_id,
+        user_id=current_user.id,
     )
 
     if not deleted:

@@ -21,15 +21,19 @@ async def create_task(
 async def get_task_by_id(
     db: AsyncSession,
     task_id: int,
+    user_id: int | None = None,
 ) -> Task | None:
-    result = await db.execute(
-        select(Task).where(Task.id == task_id)
-    )
+    query = select(Task).where(Task.id == task_id)
+    if user_id is not None:
+        query = query.where(Task.user_id == user_id)
+
+    result = await db.execute(query)
     return result.scalar_one_or_none()
 
 
 async def get_tasks(
     db: AsyncSession,
+    user_id: int | None = None,
     limit: int = 10,
     offset: int = 0,
     status: TaskStatus | None = None,
@@ -37,8 +41,10 @@ async def get_tasks(
     sort_by: str = "created_at",
     order: str = "desc",
 ) -> tuple[list[Task], int]:
-    # Build shared filter conditions
+    # Build shared filter conditions scoped to user
     filters = []
+    if user_id is not None:
+        filters.append(Task.user_id == user_id)
     if status is not None:
         filters.append(Task.status == status)
     if priority is not None:
