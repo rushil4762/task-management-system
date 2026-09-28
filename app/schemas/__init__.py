@@ -5,6 +5,8 @@ from app.schemas.auth import (
     TokenResponse,
 )
 from app.schemas.task import (
+    BulkDeleteRequest,
+    BulkDeleteResponse,
     SortOrder,
     TaskBase,
     TaskCreate,
@@ -27,6 +29,8 @@ __all__ = [
     "TaskListResponse",
     "TaskSortBy",
     "SortOrder",
+    "BulkDeleteRequest",
+    "BulkDeleteResponse",
     "UserBase",
     "UserCreate",
     "UserResponse",

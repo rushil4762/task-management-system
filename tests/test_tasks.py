@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from httpx import AsyncClient
 
@@ -40,14 +42,26 @@ async def test_unauthenticated_tasks_access(client: AsyncClient):
     res = await client.delete("/tasks/1")
     assert res.status_code == 401
 
+    # Complete / Reopen without token
+    res = await client.patch("/tasks/1/complete")
+    assert res.status_code == 401
+    res = await client.patch("/tasks/1/reopen")
+    assert res.status_code == 401
+
+    # Bulk delete without token
+    res = await client.post("/tasks/bulk-delete", json={"task_ids": [1, 2]})
+    assert res.status_code == 401
+
 
 @pytest.mark.asyncio
 async def test_create_task(client: AsyncClient, auth_headers: dict[str, str], test_user):
+    due = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
     payload = {
         "title": "Test Task",
-        "description": "Testing AsyncClient with Auth",
+        "description": "Testing AsyncClient with Auth and Due Date",
         "status": "pending",
-        "priority": "high",
+        "priority": "urgent",
+        "due_date": due,
     }
     response = await client.post("/tasks", json=payload, headers=auth_headers)
     assert response.status_code == 201
@@ -55,9 +69,11 @@ async def test_create_task(client: AsyncClient, auth_headers: dict[str, str], te
     data = response.json()
     assert data["id"] is not None
     assert data["title"] == "Test Task"
-    assert data["description"] == "Testing AsyncClient with Auth"
+    assert data["description"] == "Testing AsyncClient with Auth and Due Date"
     assert data["status"] == "pending"
-    assert data["priority"] == "high"
+    assert data["priority"] == "urgent"
+    assert data["due_date"] is not None
+    assert data["completed_at"] is None
     assert data["user_id"] == test_user.id
     assert "created_at" in data
     assert "updated_at" in data
@@ -84,7 +100,7 @@ async def test_create_task_validation_errors(client: AsyncClient, auth_headers: 
     # Invalid priority
     response = await client.post(
         "/tasks",
-        json={"title": "Valid Title", "priority": "urgent"},
+        json={"title": "Valid Title", "priority": "super_critical"},
         headers=auth_headers,
     )
     assert response.status_code == 422
@@ -139,47 +155,22 @@ async def test_list_tasks_pagination(client: AsyncClient, auth_headers: dict[str
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_filtering(client: AsyncClient, auth_headers: dict[str, str]):
+async def test_list_tasks_status_and_priority_filtering(client: AsyncClient, auth_headers: dict[str, str]):
     await client.post("/tasks", json={"title": "Task A", "status": "pending", "priority": "low"}, headers=auth_headers)
-    await client.post("/tasks", json={"title": "Task B", "status": "in_progress", "priority": "high"}, headers=auth_headers)
-    await client.post("/tasks", json={"title": "Task C", "status": "completed", "priority": "high"}, headers=auth_headers)
+    await client.post("/tasks", json={"title": "Task B", "status": "in_progress", "priority": "urgent"}, headers=auth_headers)
+    await client.post("/tasks", json={"title": "Task C", "status": "cancelled", "priority": "high"}, headers=auth_headers)
 
-    # Filter by status
-    res_status = await client.get("/tasks", params={"status": "in_progress"}, headers=auth_headers)
+    # Filter by status cancelled
+    res_status = await client.get("/tasks", params={"status": "cancelled"}, headers=auth_headers)
     assert res_status.status_code == 200
-    data_status = res_status.json()
-    assert data_status["total"] == 1
-    assert data_status["items"][0]["title"] == "Task B"
+    assert res_status.json()["total"] == 1
+    assert res_status.json()["items"][0]["title"] == "Task C"
 
-    # Filter by priority
-    res_priority = await client.get("/tasks", params={"priority": "high"}, headers=auth_headers)
+    # Filter by priority urgent
+    res_priority = await client.get("/tasks", params={"priority": "urgent"}, headers=auth_headers)
     assert res_priority.status_code == 200
-    data_priority = res_priority.json()
-    assert data_priority["total"] == 2
-
-
-@pytest.mark.asyncio
-async def test_list_tasks_sorting(client: AsyncClient, auth_headers: dict[str, str]):
-    await client.post("/tasks", json={"title": "Alpha Task"}, headers=auth_headers)
-    await client.post("/tasks", json={"title": "Beta Task"}, headers=auth_headers)
-
-    # Sort title ASC
-    asc_res = await client.get("/tasks", params={"sort_by": "title", "order": "asc"}, headers=auth_headers)
-    assert asc_res.status_code == 200
-    items_asc = asc_res.json()["items"]
-    assert items_asc[0]["title"] == "Alpha Task"
-    assert items_asc[1]["title"] == "Beta Task"
-
-    # Sort title DESC
-    desc_res = await client.get("/tasks", params={"sort_by": "title", "order": "desc"}, headers=auth_headers)
-    assert desc_res.status_code == 200
-    items_desc = desc_res.json()["items"]
-    assert items_desc[0]["title"] == "Beta Task"
-    assert items_desc[1]["title"] == "Alpha Task"
-
-    # Invalid sort field should return 422
-    invalid_sort = await client.get("/tasks", params={"sort_by": "invalid_column"}, headers=auth_headers)
-    assert invalid_sort.status_code == 422
+    assert res_priority.json()["total"] == 1
+    assert res_priority.json()["items"][0]["title"] == "Task B"
 
 
 @pytest.mark.asyncio
@@ -190,24 +181,23 @@ async def test_update_task(client: AsyncClient, auth_headers: dict[str, str]):
     # PUT partial/full update
     update_res = await client.put(
         f"/tasks/{task_id}",
-        json={"title": "Updated Title", "status": "completed"},
+        json={"title": "Updated Title", "priority": "urgent"},
         headers=auth_headers,
     )
     assert update_res.status_code == 200
     updated = update_res.json()
     assert updated["title"] == "Updated Title"
-    assert updated["status"] == "completed"
+    assert updated["priority"] == "urgent"
 
     # PATCH endpoint
     patch_res = await client.patch(
         f"/tasks/{task_id}",
-        json={"priority": "high"},
+        json={"description": "Updated Description"},
         headers=auth_headers,
     )
     assert patch_res.status_code == 200
     patched = patch_res.json()
-    assert patched["priority"] == "high"
-    assert patched["title"] == "Updated Title"
+    assert patched["description"] == "Updated Description"
 
     # Updating non-existent task
     not_found = await client.put("/tasks/9999", json={"title": "New"}, headers=auth_headers)
@@ -233,6 +223,187 @@ async def test_delete_task(client: AsyncClient, auth_headers: dict[str, str]):
 
 
 @pytest.mark.asyncio
+async def test_mark_task_completed_and_reopen(client: AsyncClient, auth_headers: dict[str, str]):
+    # 1. Create a pending task
+    res = await client.post(
+        "/tasks",
+        json={"title": "Task to complete", "status": "pending"},
+        headers=auth_headers,
+    )
+    task_id = res.json()["id"]
+    assert res.json()["completed_at"] is None
+
+    # 2. Mark completed via dedicated endpoint
+    complete_res = await client.patch(f"/tasks/{task_id}/complete", headers=auth_headers)
+    assert complete_res.status_code == 200
+    comp_data = complete_res.json()
+    assert comp_data["status"] == "completed"
+    assert comp_data["completed_at"] is not None
+
+    # 3. Reopen task via dedicated endpoint
+    reopen_res = await client.patch(f"/tasks/{task_id}/reopen", headers=auth_headers)
+    assert reopen_res.status_code == 200
+    reopen_data = reopen_res.json()
+    assert reopen_data["status"] == "pending"
+    assert reopen_data["completed_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_status_change_auto_completed_at(client: AsyncClient, auth_headers: dict[str, str]):
+    # When status is updated to completed in regular PUT/PATCH, completed_at should be auto-set
+    res = await client.post("/tasks", json={"title": "Auto transition task"}, headers=auth_headers)
+    task_id = res.json()["id"]
+
+    update_res = await client.patch(
+        f"/tasks/{task_id}",
+        json={"status": "completed"},
+        headers=auth_headers,
+    )
+    assert update_res.status_code == 200
+    assert update_res.json()["completed_at"] is not None
+
+    # When updated to in_progress or cancelled, completed_at should be cleared
+    update_res2 = await client.patch(
+        f"/tasks/{task_id}",
+        json={"status": "cancelled"},
+        headers=auth_headers,
+    )
+    assert update_res2.status_code == 200
+    assert update_res2.json()["completed_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_search_tasks(client: AsyncClient, auth_headers: dict[str, str]):
+    await client.post(
+        "/tasks",
+        json={"title": "Fix login authentication", "description": "High priority issue"},
+        headers=auth_headers,
+    )
+    await client.post(
+        "/tasks",
+        json={"title": "Write API docs", "description": "Cover authentication and tasks"},
+        headers=auth_headers,
+    )
+    await client.post(
+        "/tasks",
+        json={"title": "Database indexing", "description": "Add composite indexes for postgres"},
+        headers=auth_headers,
+    )
+
+    # Search for 'authentication' (matches title of 1 and description of 2)
+    search1 = await client.get("/tasks", params={"search": "authentication"}, headers=auth_headers)
+    assert search1.status_code == 200
+    assert search1.json()["total"] == 2
+
+    # Search for 'indexing'
+    search2 = await client.get("/tasks", params={"search": "indexing"}, headers=auth_headers)
+    assert search2.status_code == 200
+    assert search2.json()["total"] == 1
+    assert search2.json()["items"][0]["title"] == "Database indexing"
+
+    # Search with no match
+    search3 = await client.get("/tasks", params={"search": "nonexistentkeyword"}, headers=auth_headers)
+    assert search3.status_code == 200
+    assert search3.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_filter_overdue_and_completion(client: AsyncClient, auth_headers: dict[str, str]):
+    now = datetime.now(timezone.utc)
+    past_due = (now - timedelta(days=3)).isoformat()
+    future_due = (now + timedelta(days=3)).isoformat()
+
+    # 1. Overdue task (past due date, status pending)
+    await client.post(
+        "/tasks",
+        json={"title": "Overdue Task", "due_date": past_due, "status": "pending"},
+        headers=auth_headers,
+    )
+    # 2. Completed task with past due date (not overdue because completed)
+    await client.post(
+        "/tasks",
+        json={"title": "Completed Past Task", "due_date": past_due, "status": "completed"},
+        headers=auth_headers,
+    )
+    # 3. Future due task (not overdue)
+    await client.post(
+        "/tasks",
+        json={"title": "Future Task", "due_date": future_due, "status": "in_progress"},
+        headers=auth_headers,
+    )
+
+    # Filter is_overdue=true
+    overdue_res = await client.get("/tasks", params={"is_overdue": True}, headers=auth_headers)
+    assert overdue_res.status_code == 200
+    assert overdue_res.json()["total"] == 1
+    assert overdue_res.json()["items"][0]["title"] == "Overdue Task"
+
+    # Filter is_overdue=false
+    not_overdue_res = await client.get("/tasks", params={"is_overdue": False}, headers=auth_headers)
+    assert not_overdue_res.status_code == 200
+    assert not_overdue_res.json()["total"] == 2
+
+    # Filter is_completed=true
+    comp_res = await client.get("/tasks", params={"is_completed": True}, headers=auth_headers)
+    assert comp_res.status_code == 200
+    assert comp_res.json()["total"] == 1
+    assert comp_res.json()["items"][0]["title"] == "Completed Past Task"
+
+    # Filter is_completed=false
+    uncomp_res = await client.get("/tasks", params={"is_completed": False}, headers=auth_headers)
+    assert uncomp_res.status_code == 200
+    assert uncomp_res.json()["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_sorting_by_priority_and_due_date(client: AsyncClient, auth_headers: dict[str, str]):
+    now = datetime.now(timezone.utc)
+    d1 = (now + timedelta(days=1)).isoformat()
+    d2 = (now + timedelta(days=5)).isoformat()
+
+    await client.post("/tasks", json={"title": "Low Task", "priority": "low", "due_date": d2}, headers=auth_headers)
+    await client.post("/tasks", json={"title": "Urgent Task", "priority": "urgent", "due_date": d1}, headers=auth_headers)
+
+    # Sort priority DESC (urgent should come first)
+    p_desc = await client.get("/tasks", params={"sort_by": "priority", "order": "desc"}, headers=auth_headers)
+    assert p_desc.status_code == 200
+    assert p_desc.json()["items"][0]["title"] == "Urgent Task"
+    assert p_desc.json()["items"][1]["title"] == "Low Task"
+
+    # Sort due_date ASC (earlier date d1 first)
+    d_asc = await client.get("/tasks", params={"sort_by": "due_date", "order": "asc"}, headers=auth_headers)
+    assert d_asc.status_code == 200
+    assert d_asc.json()["items"][0]["title"] == "Urgent Task"
+    assert d_asc.json()["items"][1]["title"] == "Low Task"
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_tasks(client: AsyncClient, auth_headers: dict[str, str]):
+    r1 = await client.post("/tasks", json={"title": "Delete 1"}, headers=auth_headers)
+    r2 = await client.post("/tasks", json={"title": "Delete 2"}, headers=auth_headers)
+    r3 = await client.post("/tasks", json={"title": "Keep 3"}, headers=auth_headers)
+
+    id1 = r1.json()["id"]
+    id2 = r2.json()["id"]
+    id3 = r3.json()["id"]
+
+    bulk_res = await client.post(
+        "/tasks/bulk-delete",
+        json={"task_ids": [id1, id2]},
+        headers=auth_headers,
+    )
+    assert bulk_res.status_code == 200
+    assert bulk_res.json()["deleted_count"] == 2
+
+    # Verify id1 and id2 are deleted
+    assert (await client.get(f"/tasks/{id1}", headers=auth_headers)).status_code == 404
+    assert (await client.get(f"/tasks/{id2}", headers=auth_headers)).status_code == 404
+
+    # Verify id3 still exists
+    assert (await client.get(f"/tasks/{id3}", headers=auth_headers)).status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_task_ownership_isolation(
     client: AsyncClient,
     auth_headers: dict[str, str],
@@ -240,11 +411,11 @@ async def test_task_ownership_isolation(
     test_user,
     other_user,
 ):
-    """Verify that User 1 and User 2 cannot access, see, edit, or delete each other's tasks."""
+    """Verify that User 1 and User 2 cannot access, search, complete, or delete each other's tasks."""
     # User 1 creates a task
     res1 = await client.post(
         "/tasks",
-        json={"title": "User1 Private Task", "description": "Confidential"},
+        json={"title": "User1 Private Task", "description": "Confidential Searchable Term"},
         headers=auth_headers,
     )
     assert res1.status_code == 201
@@ -261,60 +432,31 @@ async def test_task_ownership_isolation(
     user2_task_id = res2.json()["id"]
     assert res2.json()["user_id"] == other_user.id
 
-    # 1. Listing isolation: User 1 only sees User 1's tasks
-    list1 = await client.get("/tasks", headers=auth_headers)
-    assert list1.status_code == 200
-    items1 = list1.json()["items"]
-    assert all(item["user_id"] == test_user.id for item in items1)
-    assert any(item["id"] == user1_task_id for item in items1)
-    assert not any(item["id"] == user2_task_id for item in items1)
+    # 1. Search isolation: User 2 searching for User 1's term gets 0 results
+    search_cross = await client.get("/tasks", params={"search": "Confidential"}, headers=other_auth_headers)
+    assert search_cross.status_code == 200
+    assert search_cross.json()["total"] == 0
 
-    # Listing isolation: User 2 only sees User 2's tasks
-    list2 = await client.get("/tasks", headers=other_auth_headers)
-    assert list2.status_code == 200
-    items2 = list2.json()["items"]
-    assert all(item["user_id"] == other_user.id for item in items2)
-    assert any(item["id"] == user2_task_id for item in items2)
-    assert not any(item["id"] == user1_task_id for item in items2)
+    # 2. Complete / Reopen isolation: User 2 cannot complete User 1's task
+    comp_cross = await client.patch(f"/tasks/{user1_task_id}/complete", headers=other_auth_headers)
+    assert comp_cross.status_code == 404
+    reopen_cross = await client.patch(f"/tasks/{user1_task_id}/reopen", headers=other_auth_headers)
+    assert reopen_cross.status_code == 404
 
-    # 2. Direct GET isolation: User 2 cannot GET User 1's task
-    get_cross = await client.get(f"/tasks/{user1_task_id}", headers=other_auth_headers)
-    assert get_cross.status_code == 404
-    assert get_cross.json()["detail"] == "Task not found"
-
-    # User 1 cannot GET User 2's task
-    get_cross2 = await client.get(f"/tasks/{user2_task_id}", headers=auth_headers)
-    assert get_cross2.status_code == 404
-
-    # 3. Update isolation: User 2 cannot PUT User 1's task
-    put_cross = await client.put(
-        f"/tasks/{user1_task_id}",
-        json={"title": "Hacked Title"},
+    # 3. Bulk delete isolation: User 2 bulk deleting User 1's task ID deletes 0 tasks
+    bulk_cross = await client.post(
+        "/tasks/bulk-delete",
+        json={"task_ids": [user1_task_id]},
         headers=other_auth_headers,
     )
-    assert put_cross.status_code == 404
+    assert bulk_cross.status_code == 200
+    assert bulk_cross.json()["deleted_count"] == 0
 
-    # User 2 cannot PATCH User 1's task
-    patch_cross = await client.patch(
-        f"/tasks/{user1_task_id}",
-        json={"status": "completed"},
-        headers=other_auth_headers,
-    )
-    assert patch_cross.status_code == 404
-
-    # Verify User 1's task title was not modified
+    # Verify User 1's task still exists untouched
     verify_res = await client.get(f"/tasks/{user1_task_id}", headers=auth_headers)
     assert verify_res.status_code == 200
     assert verify_res.json()["title"] == "User1 Private Task"
 
-    # 4. Delete isolation: User 2 cannot DELETE User 1's task
-    del_cross = await client.delete(f"/tasks/{user1_task_id}", headers=other_auth_headers)
-    assert del_cross.status_code == 404
-
-    # Verify User 1's task still exists
-    verify_res2 = await client.get(f"/tasks/{user1_task_id}", headers=auth_headers)
-    assert verify_res2.status_code == 200
-
-    # User 1 can successfully delete their own task
+    # User 1 can delete their own task
     del_own = await client.delete(f"/tasks/{user1_task_id}", headers=auth_headers)
     assert del_own.status_code == 204

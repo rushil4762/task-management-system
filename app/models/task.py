@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -15,16 +15,24 @@ class TaskStatus(str, Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
 
 class TaskPriority(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    URGENT = "urgent"
 
 
 class Task(Base):
     __tablename__ = "tasks"
+
+    __table_args__ = (
+        Index("ix_tasks_user_status", "user_id", "status"),
+        Index("ix_tasks_user_due_date", "user_id", "due_date"),
+        Index("ix_tasks_user_created_at", "user_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(
         primary_key=True,
@@ -67,6 +75,18 @@ class Task(Base):
         index=True,
     )
 
+    due_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -89,4 +109,4 @@ class Task(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Task id={self.id} title={self.title!r} status={self.status} user_id={self.user_id}>"
+        return f"<Task id={self.id} title={self.title!r} status={self.status} priority={self.priority} user_id={self.user_id}>"

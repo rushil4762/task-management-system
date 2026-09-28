@@ -8,12 +8,13 @@ from app.models.task import TaskPriority, TaskStatus
 
 
 class TaskSortBy(str, Enum):
-    ID = "id"
-    TITLE = "title"
-    STATUS = "status"
-    PRIORITY = "priority"
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"
+    DUE_DATE = "due_date"
+    PRIORITY = "priority"
+    TITLE = "title"
+    ID = "id"
+    STATUS = "status"
 
 
 class SortOrder(str, Enum):
@@ -23,9 +24,10 @@ class SortOrder(str, Enum):
 
 class TaskBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=200, description="Task title")
-    description: str | None = Field(default=None, description="Detailed task description")
+    description: str | None = Field(default=None, max_length=5000, description="Detailed task description")
     status: TaskStatus = Field(default=TaskStatus.PENDING, description="Current status of the task")
     priority: TaskPriority = Field(default=TaskPriority.MEDIUM, description="Priority level of the task")
+    due_date: datetime | None = Field(default=None, description="Due date and time with timezone")
 
     @field_validator("title")
     @classmethod
@@ -57,6 +59,7 @@ class TaskUpdate(BaseModel):
     )
     description: str | None = Field(
         default=None,
+        max_length=5000,
         description="Updated task description (null to clear)",
     )
     status: TaskStatus | None = Field(
@@ -66,6 +69,10 @@ class TaskUpdate(BaseModel):
     priority: TaskPriority | None = Field(
         default=None,
         description="Updated priority",
+    )
+    due_date: datetime | None = Field(
+        default=None,
+        description="Updated due date (null to clear)",
     )
 
     @field_validator("title")
@@ -85,6 +92,8 @@ class TaskResponse(BaseModel):
     description: str | None
     status: TaskStatus
     priority: TaskPriority
+    due_date: datetime | None
+    completed_at: datetime | None
     user_id: int
     created_at: datetime
     updated_at: datetime
@@ -97,3 +106,17 @@ class TaskListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class BulkDeleteRequest(BaseModel):
+    task_ids: list[int] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="List of integer task IDs to delete",
+    )
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted_count: int = Field(..., description="Number of tasks successfully deleted")
+    message: str = Field(..., description="Operation summary message")
