@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
+from app.models.category import Category
+from app.models.tag import Tag
 from app.models.task import Task, TaskPriority, TaskStatus
 
 
@@ -19,14 +22,34 @@ async def create_task(
         raise
 
 
+
 async def get_task_by_id(
     db: AsyncSession,
     task_id: int,
     user_id: int | None = None,
+    allow_assigned: bool = False,
 ) -> Task | None:
-    query = select(Task).where(Task.id == task_id)
+    query = (
+        select(Task)
+        .options(
+            selectinload(Task.tags),
+            joinedload(Task.category),
+            joinedload(Task.assignee),
+        )
+        .execution_options(populate_existing=True)
+        .where(Task.id == task_id)
+    )
+
     if user_id is not None:
-        query = query.where(Task.user_id == user_id)
+        if allow_assigned:
+            query = query.where(
+                or_(
+                    Task.user_id == user_id,
+                    Task.assigned_to_id == user_id,
+                )
+            )
+        else:
+            query = query.where(Task.user_id == user_id)
 
     result = await db.execute(query)
     return result.scalar_one_or_none()
@@ -44,13 +67,30 @@ async def get_tasks(
     due_date_to: datetime | None = None,
     is_overdue: bool | None = None,
     is_completed: bool | None = None,
+    category_id: int | None = None,
+    category_name: str | None = None,
+    tag_id: int | None = None,
+    tag_name: str | None = None,
+    assigned_to_id: int | None = None,
+    view: str = "all",
     sort_by: str = "created_at",
     order: str = "desc",
 ) -> tuple[list[Task], int]:
     # Build shared filter conditions scoped to user
     filters = []
     if user_id is not None:
-        filters.append(Task.user_id == user_id)
+        if view == "created":
+            filters.append(Task.user_id == user_id)
+        elif view == "assigned":
+            filters.append(Task.assigned_to_id == user_id)
+        else:
+            # "all" or default: user is either creator or assignee
+            filters.append(
+                or_(
+                    Task.user_id == user_id,
+                    Task.assigned_to_id == user_id,
+                )
+            )
 
     # Search in title or description
     if search and search.strip():
@@ -97,6 +137,26 @@ async def get_tasks(
                 )
             )
 
+    # Category filters
+    if category_id is not None:
+        filters.append(Task.category_id == category_id)
+    if category_name and category_name.strip():
+        filters.append(
+            Task.category.has(func.lower(Category.name) == category_name.strip().lower())
+        )
+
+    # Tag filters
+    if tag_id is not None:
+        filters.append(Task.tags.any(Tag.id == tag_id))
+    if tag_name and tag_name.strip():
+        filters.append(
+            Task.tags.any(func.lower(Tag.name) == tag_name.strip().lower())
+        )
+
+    # Assigned user filter
+    if assigned_to_id is not None:
+        filters.append(Task.assigned_to_id == assigned_to_id)
+
     # 1. Total count query with filters applied
     count_query = select(func.count(Task.id))
     if filters:
@@ -105,8 +165,15 @@ async def get_tasks(
     count_result = await db.execute(count_query)
     total = count_result.scalar_one()
 
-    # 2. Main data query
-    query = select(Task)
+    # 2. Main data query with eager loading to prevent N+1 queries
+    query = (
+        select(Task)
+        .options(
+            selectinload(Task.tags),
+            joinedload(Task.category),
+            joinedload(Task.assignee),
+        )
+    )
     if filters:
         query = query.where(*filters)
 
@@ -164,6 +231,8 @@ async def update_task(
     except Exception:
         await db.rollback()
         raise
+
+
 
 
 async def delete_task(

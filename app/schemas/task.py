@@ -1,10 +1,13 @@
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import List, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.task import TaskPriority, TaskStatus
+from app.schemas.category import CategoryResponse
+from app.schemas.tag import TagResponse
+from app.schemas.user import UserResponse
 
 
 class TaskSortBy(str, Enum):
@@ -28,6 +31,9 @@ class TaskBase(BaseModel):
     status: TaskStatus = Field(default=TaskStatus.PENDING, description="Current status of the task")
     priority: TaskPriority = Field(default=TaskPriority.MEDIUM, description="Priority level of the task")
     due_date: datetime | None = Field(default=None, description="Due date and time with timezone")
+    category_id: int | None = Field(default=None, description="Optional category ID")
+    assigned_to_id: int | None = Field(default=None, description="Optional assigned user ID")
+    tag_ids: list[int] | None = Field(default=None, description="Optional tag IDs to attach")
 
     @field_validator("title")
     @classmethod
@@ -74,6 +80,18 @@ class TaskUpdate(BaseModel):
         default=None,
         description="Updated due date (null to clear)",
     )
+    category_id: int | None = Field(
+        default=None,
+        description="Updated category ID (null to clear)",
+    )
+    assigned_to_id: int | None = Field(
+        default=None,
+        description="Updated assignee user ID (null to clear)",
+    )
+    tag_ids: list[int] | None = Field(
+        default=None,
+        description="Updated list of tag IDs to replace current tags",
+    )
 
     @field_validator("title")
     @classmethod
@@ -95,6 +113,11 @@ class TaskResponse(BaseModel):
     due_date: datetime | None
     completed_at: datetime | None
     user_id: int
+    category_id: int | None = None
+    assigned_to_id: int | None = None
+    category: CategoryResponse | None = None
+    tags: List[TagResponse] = []
+    assignee: UserResponse | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -460,3 +460,252 @@ async def test_task_ownership_isolation(
     # User 1 can delete their own task
     del_own = await client.delete(f"/tasks/{user1_task_id}", headers=auth_headers)
     assert del_own.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_assign_task_valid_user(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    other_user,
+):
+    res = await client.post(
+        "/tasks",
+        json={"title": "Team Task", "assigned_to_id": other_user.id},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["assigned_to_id"] == other_user.id
+    assert data["assignee"] is not None
+    assert data["assignee"]["id"] == other_user.id
+    assert data["assignee"]["email"] == other_user.email
+
+
+@pytest.mark.asyncio
+async def test_change_and_remove_assignee(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    other_user,
+):
+    create_res = await client.post("/tasks", json={"title": "Flexible Assignee Task"}, headers=auth_headers)
+    task_id = create_res.json()["id"]
+    assert create_res.json()["assigned_to_id"] is None
+
+    # Assign to other_user
+    assign_res = await client.patch(
+        f"/tasks/{task_id}",
+        json={"assigned_to_id": other_user.id},
+        headers=auth_headers,
+    )
+    assert assign_res.status_code == 200
+    assert assign_res.json()["assigned_to_id"] == other_user.id
+    assert assign_res.json()["assignee"]["id"] == other_user.id
+
+    # Remove assignee
+    remove_res = await client.patch(
+        f"/tasks/{task_id}",
+        json={"assigned_to_id": None},
+        headers=auth_headers,
+    )
+    assert remove_res.status_code == 200
+    assert remove_res.json()["assigned_to_id"] is None
+    assert remove_res.json()["assignee"] is None
+
+
+@pytest.mark.asyncio
+async def test_assign_nonexistent_user(client: AsyncClient, auth_headers: dict[str, str]):
+    res = await client.post(
+        "/tasks",
+        json={"title": "Bad Assign", "assigned_to_id": 99999},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "assigned user does not exist" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_assign_inactive_user(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    inactive_user,
+):
+    res = await client.post(
+        "/tasks",
+        json={"title": "Inactive Assign", "assigned_to_id": inactive_user.id},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "assigned user is inactive" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_assigned_user_read_access_and_mutation_forbidden(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    other_auth_headers: dict[str, str],
+    other_user,
+):
+    # Owner creates a task assigned to other_user
+    create_res = await client.post(
+        "/tasks",
+        json={"title": "Collaborative Task", "assigned_to_id": other_user.id},
+        headers=auth_headers,
+    )
+    assert create_res.status_code == 201
+    task_id = create_res.json()["id"]
+
+    # 1. Assigned user CAN view the task
+    get_res = await client.get(f"/tasks/{task_id}", headers=other_auth_headers)
+    assert get_res.status_code == 200
+    assert get_res.json()["id"] == task_id
+    assert get_res.json()["title"] == "Collaborative Task"
+
+    # 2. Assigned user CANNOT modify the task (returns 403 Forbidden)
+    update_res = await client.put(
+        f"/tasks/{task_id}",
+        json={"title": "Hijacked Title"},
+        headers=other_auth_headers,
+    )
+    assert update_res.status_code == 403
+
+    # 3. Assigned user CANNOT mark completed or reopen the task
+    comp_res = await client.patch(f"/tasks/{task_id}/complete", headers=other_auth_headers)
+    assert comp_res.status_code == 403
+    reopen_res = await client.patch(f"/tasks/{task_id}/reopen", headers=other_auth_headers)
+    assert reopen_res.status_code == 403
+
+    # 4. Assigned user CANNOT attach or detach tags
+    tag_res = await client.post("/tags", json={"name": "other_tag"}, headers=other_auth_headers)
+    other_tag_id = tag_res.json()["id"]
+    attach_res = await client.post(
+        f"/tasks/{task_id}/tags",
+        json={"tag_ids": [other_tag_id]},
+        headers=other_auth_headers,
+    )
+    assert attach_res.status_code == 403
+
+    # 5. Assigned user CANNOT delete the task
+    del_res = await client.delete(f"/tasks/{task_id}", headers=other_auth_headers)
+    assert del_res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_combined_filters_category_and_status(client: AsyncClient, auth_headers: dict[str, str]):
+    c1 = (await client.post("/categories", json={"name": "Dev"}, headers=auth_headers)).json()["id"]
+    c2 = (await client.post("/categories", json={"name": "Ops"}, headers=auth_headers)).json()["id"]
+
+    await client.post("/tasks", json={"title": "T1", "category_id": c1, "status": "pending"}, headers=auth_headers)
+    await client.post("/tasks", json={"title": "T2", "category_id": c1, "status": "completed"}, headers=auth_headers)
+    await client.post("/tasks", json={"title": "T3", "category_id": c2, "status": "pending"}, headers=auth_headers)
+
+    res = await client.get("/tasks", params={"category_id": c1, "status": "pending"}, headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["total"] == 1
+    assert res.json()["items"][0]["title"] == "T1"
+
+
+@pytest.mark.asyncio
+async def test_combined_filters_tag_and_priority(client: AsyncClient, auth_headers: dict[str, str]):
+    tag = (await client.post("/tags", json={"name": "infra"}, headers=auth_headers)).json()["id"]
+
+    await client.post("/tasks", json={"title": "T1", "tag_ids": [tag], "priority": "high"}, headers=auth_headers)
+    await client.post("/tasks", json={"title": "T2", "tag_ids": [tag], "priority": "low"}, headers=auth_headers)
+    await client.post("/tasks", json={"title": "T3", "priority": "high"}, headers=auth_headers)
+
+    res = await client.get("/tasks", params={"tag_id": tag, "priority": "high"}, headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["total"] == 1
+    assert res.json()["items"][0]["title"] == "T1"
+
+
+@pytest.mark.asyncio
+async def test_combined_filters_assigned_user_and_status(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    other_user,
+):
+    await client.post(
+        "/tasks",
+        json={"title": "T1", "assigned_to_id": other_user.id, "status": "in_progress"},
+        headers=auth_headers,
+    )
+    await client.post(
+        "/tasks",
+        json={"title": "T2", "assigned_to_id": other_user.id, "status": "completed"},
+        headers=auth_headers,
+    )
+    await client.post(
+        "/tasks",
+        json={"title": "T3", "status": "in_progress"},
+        headers=auth_headers,
+    )
+
+    res = await client.get(
+        "/tasks",
+        params={"assigned_to_id": other_user.id, "status": "in_progress"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["total"] == 1
+    assert res.json()["items"][0]["title"] == "T1"
+
+
+@pytest.mark.asyncio
+async def test_combined_filters_category_and_tag(client: AsyncClient, auth_headers: dict[str, str]):
+    c = (await client.post("/categories", json={"name": "Security"}, headers=auth_headers)).json()["id"]
+    t = (await client.post("/tags", json={"name": "audit"}, headers=auth_headers)).json()["id"]
+
+    await client.post("/tasks", json={"title": "T1", "category_id": c, "tag_ids": [t]}, headers=auth_headers)
+    await client.post("/tasks", json={"title": "T2", "category_id": c}, headers=auth_headers)
+    await client.post("/tasks", json={"title": "T3", "tag_ids": [t]}, headers=auth_headers)
+
+    res = await client.get("/tasks", params={"category_id": c, "tag_id": t}, headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["total"] == 1
+    assert res.json()["items"][0]["title"] == "T1"
+
+
+@pytest.mark.asyncio
+async def test_combined_filters_search_category_and_tag(client: AsyncClient, auth_headers: dict[str, str]):
+    c = (await client.post("/categories", json={"name": "Frontend"}, headers=auth_headers)).json()["id"]
+    t = (await client.post("/tags", json={"name": "ui"}, headers=auth_headers)).json()["id"]
+
+    await client.post("/tasks", json={"title": "Refactor Button Component", "category_id": c, "tag_ids": [t]}, headers=auth_headers)
+    await client.post("/tasks", json={"title": "Design System Docs", "category_id": c, "tag_ids": [t]}, headers=auth_headers)
+    await client.post("/tasks", json={"title": "Refactor Backend Button", "tag_ids": [t]}, headers=auth_headers)
+
+    res = await client.get(
+        "/tasks",
+        params={"search": "Button", "category_id": c, "tag_id": t},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["total"] == 1
+    assert res.json()["items"][0]["title"] == "Refactor Button Component"
+
+
+@pytest.mark.asyncio
+async def test_combined_filters_sorting_and_pagination(client: AsyncClient, auth_headers: dict[str, str]):
+    c = (await client.post("/categories", json={"name": "Sprint"}, headers=auth_headers)).json()["id"]
+
+    for i in range(1, 6):
+        await client.post(
+            "/tasks",
+            json={"title": f"Sprint Task {i}", "category_id": c, "priority": "medium"},
+            headers=auth_headers,
+        )
+
+    # Page 1 (limit 2, offset 0)
+    p1 = await client.get("/tasks", params={"category_id": c, "limit": 2, "offset": 0, "sort_by": "id", "order": "asc"}, headers=auth_headers)
+    assert p1.status_code == 200
+    assert len(p1.json()["items"]) == 2
+    assert p1.json()["total"] == 5
+    assert p1.json()["items"][0]["title"] == "Sprint Task 1"
+    assert p1.json()["items"][1]["title"] == "Sprint Task 2"
+
+    # Page 2 (limit 2, offset 2)
+    p2 = await client.get("/tasks", params={"category_id": c, "limit": 2, "offset": 2, "sort_by": "id", "order": "asc"}, headers=auth_headers)
+    assert p2.status_code == 200
+    assert len(p2.json()["items"]) == 2
+    assert p2.json()["items"][0]["title"] == "Sprint Task 3"
+    assert p2.json()["items"][1]["title"] == "Sprint Task 4"

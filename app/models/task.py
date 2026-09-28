@@ -1,13 +1,16 @@
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.models.tag import task_tags
 
 if TYPE_CHECKING:
+    from app.models.category import Category
+    from app.models.tag import Tag
     from app.models.user import User
 
 
@@ -32,6 +35,8 @@ class Task(Base):
         Index("ix_tasks_user_status", "user_id", "status"),
         Index("ix_tasks_user_due_date", "user_id", "due_date"),
         Index("ix_tasks_user_created_at", "user_id", "created_at"),
+        Index("ix_tasks_user_category", "user_id", "category_id"),
+        Index("ix_tasks_assigned_status", "assigned_to_id", "status"),
     )
 
     id: Mapped[int] = mapped_column(
@@ -75,6 +80,18 @@ class Task(Base):
         index=True,
     )
 
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    assigned_to_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     due_date: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
@@ -105,8 +122,30 @@ class Task(Base):
 
     user: Mapped["User"] = relationship(
         "User",
+        foreign_keys=[user_id],
         back_populates="tasks",
     )
 
+    assignee: Mapped["User | None"] = relationship(
+        "User",
+        foreign_keys=[assigned_to_id],
+        back_populates="assigned_tasks",
+        lazy="selectin",
+    )
+
+    category: Mapped["Category | None"] = relationship(
+        "Category",
+        back_populates="tasks",
+        lazy="selectin",
+    )
+
+    tags: Mapped[List["Tag"]] = relationship(
+        "Tag",
+        secondary=task_tags,
+        back_populates="tasks",
+        lazy="selectin",
+    )
+
+
     def __repr__(self) -> str:
-        return f"<Task id={self.id} title={self.title!r} status={self.status} priority={self.priority} user_id={self.user_id}>"
+        return f"<Task id={self.id} title={self.title!r} status={self.status} user_id={self.user_id}>"

@@ -105,3 +105,19 @@ async def other_auth_headers(other_user: User) -> dict[str, str]:
     """Return Authorization headers for the second test user."""
     token = create_access_token(subject=other_user.id, extra_claims={"email": other_user.email})
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture(scope="function")
+async def inactive_user(db_session: AsyncSession) -> User:
+    """Create an inactive test user for assignment testing."""
+    user = User(
+        name="Inactive User",
+        email="inactive@example.com",
+        password_hash=hash_password("Password789!"),
+        is_active=False,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+

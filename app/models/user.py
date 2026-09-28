@@ -7,6 +7,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.category import Category
+    from app.models.tag import Tag
     from app.models.task import Task
 
 
@@ -58,6 +60,25 @@ class User(Base):
 
     tasks: Mapped[List["Task"]] = relationship(
         "Task",
+        foreign_keys="Task.user_id",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    assigned_tasks: Mapped[List["Task"]] = relationship(
+        "Task",
+        foreign_keys="Task.assigned_to_id",
+        back_populates="assignee",
+    )
+
+    categories: Mapped[List["Category"]] = relationship(
+        "Category",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    tags: Mapped[List["Tag"]] = relationship(
+        "Tag",
         back_populates="user",
         cascade="all, delete-orphan",
     )

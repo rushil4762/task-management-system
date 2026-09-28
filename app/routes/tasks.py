@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.task import TaskPriority, TaskStatus
 from app.models.user import User
+from app.schemas.tag import TaskTagsAttachRequest
 from app.schemas.task import (
     BulkDeleteRequest,
     BulkDeleteResponse,
@@ -90,6 +91,36 @@ async def get_tasks(
         default=None,
         description="Filter completed (true) or non-completed (false) tasks",
     ),
+    category_id: int | None = Query(
+        default=None,
+        description="Filter tasks by category ID",
+    ),
+    category: str | None = Query(
+        default=None,
+        description="Filter tasks by category name (case-insensitive)",
+    ),
+    tag_id: int | None = Query(
+        default=None,
+        description="Filter tasks by tag ID",
+    ),
+    tag: str | None = Query(
+        default=None,
+        description="Filter tasks by tag name (case-insensitive)",
+    ),
+    assigned_to_id: int | None = Query(
+        default=None,
+        alias="assigned_to_id",
+        description="Filter tasks by assigned user ID",
+    ),
+    assigned_user: int | None = Query(
+        default=None,
+        alias="assigned_user",
+        description="Filter tasks by assigned user ID (alias)",
+    ),
+    view: str = Query(
+        default="all",
+        description="Task view: 'created' (tasks created by user), 'assigned' (tasks assigned to user), or 'all' (created or assigned)",
+    ),
     sort_by: TaskSortBy = Query(
         default=TaskSortBy.CREATED_AT,
         description="Field to sort tasks by",
@@ -101,6 +132,8 @@ async def get_tasks(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    target_assigned_to = assigned_to_id if assigned_to_id is not None else assigned_user
+
     tasks, total = await task_service.get_tasks(
         db=db,
         user_id=current_user.id,
@@ -113,6 +146,12 @@ async def get_tasks(
         due_date_to=due_date_to,
         is_overdue=is_overdue,
         is_completed=is_completed,
+        category_id=category_id,
+        category_name=category,
+        tag_id=tag_id,
+        tag_name=tag,
+        assigned_to_id=target_assigned_to,
+        view=view,
         sort_by=sort_by.value,
         order=order.value,
     )
@@ -151,7 +190,7 @@ async def bulk_delete_tasks(
 @router.get(
     "/{task_id}",
     response_model=TaskResponse,
-    summary="Get an owned task by ID",
+    summary="Get a task by ID (creator or assigned user)",
 )
 async def get_task(
     task_id: int = Path(..., ge=1, description="Unique integer ID of the task"),
@@ -286,3 +325,43 @@ async def delete_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Task not found",
         )
+
+
+@router.post(
+    "/{task_id}/tags",
+    response_model=TaskResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Attach tags to a task",
+)
+async def attach_tags_to_task(
+    attach_data: TaskTagsAttachRequest,
+    task_id: int = Path(..., ge=1, description="Unique integer ID of the task"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await task_service.attach_tags_to_task(
+        db=db,
+        task_id=task_id,
+        tag_ids=attach_data.tag_ids,
+        user_id=current_user.id,
+    )
+
+
+@router.delete(
+    "/{task_id}/tags/{tag_id}",
+    response_model=TaskResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Remove a tag from a task",
+)
+async def remove_tag_from_task(
+    task_id: int = Path(..., ge=1, description="Unique integer ID of the task"),
+    tag_id: int = Path(..., ge=1, description="Unique integer ID of the tag to detach"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await task_service.remove_tag_from_task(
+        db=db,
+        task_id=task_id,
+        tag_id=tag_id,
+        user_id=current_user.id,
+    )

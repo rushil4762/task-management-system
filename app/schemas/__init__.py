@@ -4,6 +4,19 @@ from app.schemas.auth import (
     TokenPayload,
     TokenResponse,
 )
+from app.schemas.category import (
+    CategoryBase,
+    CategoryCreate,
+    CategoryResponse,
+    CategoryUpdate,
+)
+from app.schemas.tag import (
+    TagBase,
+    TagCreate,
+    TagResponse,
+    TagUpdate,
+    TaskTagsAttachRequest,
+)
 from app.schemas.task import (
     BulkDeleteRequest,
     BulkDeleteResponse,
@@ -38,4 +51,14 @@ __all__ = [
     "TokenResponse",
     "RefreshTokenRequest",
     "TokenPayload",
+    "CategoryBase",
+    "CategoryCreate",
+    "CategoryUpdate",
+    "CategoryResponse",
+    "TagBase",
+    "TagCreate",
+    "TagUpdate",
+    "TagResponse",
+    "TaskTagsAttachRequest",
 ]
+
