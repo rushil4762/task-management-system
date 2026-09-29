@@ -6,7 +6,8 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.database import Base, settings
-from app.models import Category, Tag, Task, TaskActivity, TaskComment, User, task_tags
+from app.models import Category, Notification, Tag, Task, TaskActivity, TaskComment, User, task_tags
+
 
 
 config = context.config

@@ -4,6 +4,8 @@ from app.services import (
     category_service,
     comment_service,
     dashboard_service,
+    notification_service,
+    reminder_service,
     tag_service,
     task_service,
 )
@@ -16,5 +18,8 @@ __all__ = [
     "comment_service",
     "activity_service",
     "dashboard_service",
+    "notification_service",
+    "reminder_service",
 ]
+
 

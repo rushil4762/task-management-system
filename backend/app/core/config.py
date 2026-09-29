@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # Task Reminders
+    TASK_DUE_SOON_HOURS: int = 24
+
     # CORS
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",

@@ -12,8 +12,10 @@ if TYPE_CHECKING:
     from app.models.activity import TaskActivity
     from app.models.category import Category
     from app.models.comment import TaskComment
+    from app.models.notification import Notification
     from app.models.tag import Tag
     from app.models.user import User
+
 
 
 
@@ -160,6 +162,13 @@ class Task(Base):
         back_populates="task",
         cascade="all, delete-orphan",
     )
+
+    notifications: Mapped[List["Notification"]] = relationship(
+        "Notification",
+        back_populates="task",
+        cascade="all, delete-orphan",
+    )
+
 
     def __repr__(self) -> str:
 

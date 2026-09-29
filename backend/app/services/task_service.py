@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import TaskActivity
 from app.models.category import Category
+from app.models.notification import NotificationType
 from app.models.tag import Tag
 from app.models.task import Task, TaskPriority, TaskStatus
 from app.models.user import User
@@ -16,6 +17,8 @@ from app.repositories import (
 )
 from app.schemas.activity import TaskActivityAction
 from app.schemas.task import TaskCreate, TaskUpdate
+from app.services import notification_service
+
 
 
 async def _validate_and_get_category(
@@ -134,7 +137,32 @@ async def create_task(
         commit=True,
     )
 
+    # If assigned to another user, trigger task_assigned notification (never notify self)
+    if created_task.assigned_to_id and created_task.assigned_to_id != user_id:
+        await notification_service.create_notification(
+            db=db,
+            user_id=created_task.assigned_to_id,
+            task_id=created_task.id,
+            type=NotificationType.TASK_ASSIGNED,
+            title=f"Task Assigned: {created_task.title}",
+            message=f"You have been assigned to task '{created_task.title}'.",
+            event_key=f"assigned_{created_task.id}_{created_task.assigned_to_id}",
+        )
+
+    # If created directly in completed status, trigger task_completed notification
+    if created_task.status == TaskStatus.COMPLETED:
+        await notification_service.create_notification(
+            db=db,
+            user_id=user_id,
+            task_id=created_task.id,
+            type=NotificationType.TASK_COMPLETED,
+            title=f"Task Completed: {created_task.title}",
+            message=f"Task '{created_task.title}' was marked as completed.",
+            event_key=f"completed_{created_task.id}",
+        )
+
     return created_task
+
 
 
 async def get_task(
@@ -377,6 +405,48 @@ async def update_task(
     for act in activities_to_create:
         await activity_repository.create_activity(db, act, commit=True)
 
+    # Deliver task_assigned notification on assignment change (skip self-assignment)
+    if (
+        old_assigned_to_id != updated_task.assigned_to_id
+        and updated_task.assigned_to_id is not None
+        and updated_task.assigned_to_id != user_id
+    ):
+        await notification_service.create_notification(
+            db=db,
+            user_id=updated_task.assigned_to_id,
+            task_id=updated_task.id,
+            type=NotificationType.TASK_ASSIGNED,
+            title=f"Task Assigned: {updated_task.title}",
+            message=f"You have been assigned to task '{updated_task.title}'.",
+            event_key=f"assigned_{updated_task.id}_{updated_task.assigned_to_id}",
+        )
+
+    # Deliver task_completed notification on status transition to COMPLETED (avoid duplicates if already completed)
+    if old_status != TaskStatus.COMPLETED and updated_task.status == TaskStatus.COMPLETED:
+        await notification_service.create_notification(
+            db=db,
+            user_id=updated_task.user_id,
+            task_id=updated_task.id,
+            type=NotificationType.TASK_COMPLETED,
+            title=f"Task Completed: {updated_task.title}",
+            message=f"Task '{updated_task.title}' was marked as completed.",
+            event_key=f"completed_{updated_task.id}",
+        )
+        if (
+            updated_task.assigned_to_id is not None
+            and updated_task.assigned_to_id != updated_task.user_id
+            and updated_task.assigned_to_id != user_id
+        ):
+            await notification_service.create_notification(
+                db=db,
+                user_id=updated_task.assigned_to_id,
+                task_id=updated_task.id,
+                type=NotificationType.TASK_COMPLETED,
+                title=f"Task Completed: {updated_task.title}",
+                message=f"Task '{updated_task.title}' was marked as completed.",
+                event_key=f"completed_{updated_task.id}",
+            )
+
     return updated_task
 
 
@@ -417,7 +487,32 @@ async def mark_task_completed(
             ),
             commit=True,
         )
+        # Notify task owner and assignee (avoid duplicate if already completed)
+        await notification_service.create_notification(
+            db=db,
+            user_id=task.user_id,
+            task_id=task.id,
+            type=NotificationType.TASK_COMPLETED,
+            title=f"Task Completed: {task.title}",
+            message=f"Task '{task.title}' was marked as completed.",
+            event_key=f"completed_{task.id}",
+        )
+        if (
+            task.assigned_to_id is not None
+            and task.assigned_to_id != task.user_id
+            and task.assigned_to_id != user_id
+        ):
+            await notification_service.create_notification(
+                db=db,
+                user_id=task.assigned_to_id,
+                task_id=task.id,
+                type=NotificationType.TASK_COMPLETED,
+                title=f"Task Completed: {task.title}",
+                message=f"Task '{task.title}' was marked as completed.",
+                event_key=f"completed_{task.id}",
+            )
     return updated
+
 
 
 async def reopen_task(

@@ -32,6 +32,12 @@ from app.schemas.dashboard import (
     TaskPriorityCounts,
     TaskStatusCounts,
 )
+from app.schemas.notification import (
+    NotificationListResponse,
+    NotificationResponse,
+    ReadAllResponse,
+    UnreadCountResponse,
+)
 from app.schemas.tag import (
     TagBase,
     TagCreate,
@@ -39,6 +45,7 @@ from app.schemas.tag import (
     TagUpdate,
     TaskTagsAttachRequest,
 )
+
 from app.schemas.task import (
     BulkDeleteRequest,
     BulkDeleteResponse,
@@ -98,5 +105,10 @@ __all__ = [
     "CategoryTaskCount",
     "CompletionTrendPoint",
     "DashboardSummaryResponse",
+    "NotificationResponse",
+    "NotificationListResponse",
+    "UnreadCountResponse",
+    "ReadAllResponse",
 ]
+
 

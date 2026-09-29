@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import TaskActivity
 from app.models.comment import TaskComment
+from app.models.notification import NotificationType
 from app.repositories import (
     activity_repository,
     comment_repository,
@@ -12,6 +13,8 @@ from app.repositories import (
 )
 from app.schemas.activity import TaskActivityAction
 from app.schemas.comment import CommentCreate, CommentUpdate
+from app.services import notification_service
+
 
 
 async def add_comment(
@@ -50,9 +53,28 @@ async def add_comment(
     )
     await activity_repository.create_activity(db, activity, commit=True)
 
+    # 4. Notify relevant task participants (owner and assignee, excluding comment author)
+    recipients_to_notify: set[int] = set()
+    if task.user_id != user_id:
+        recipients_to_notify.add(task.user_id)
+    if task.assigned_to_id is not None and task.assigned_to_id != user_id:
+        recipients_to_notify.add(task.assigned_to_id)
+
+    for recipient_id in recipients_to_notify:
+        await notification_service.create_notification(
+            db=db,
+            user_id=recipient_id,
+            task_id=task.id,
+            type=NotificationType.COMMENT_ADDED,
+            title=f"New Comment on '{task.title}'",
+            message=f"A new comment was added to task '{task.title}'.",
+            event_key=f"comment_{created_comment.id}",
+        )
+
     # Refresh comment with user relation eagerly loaded
     fresh = await comment_repository.get_comment_by_id(db, created_comment.id)
     return fresh or created_comment
+
 
 
 async def get_comments_for_task(
