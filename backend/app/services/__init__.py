@@ -3,6 +3,7 @@ from app.services import (
     auth_service,
     category_service,
     comment_service,
+    dashboard_service,
     tag_service,
     task_service,
 )
@@ -14,4 +15,6 @@ __all__ = [
     "tag_service",
     "comment_service",
     "activity_service",
+    "dashboard_service",
 ]
+

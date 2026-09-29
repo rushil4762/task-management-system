@@ -2,6 +2,7 @@ from app.repositories import (
     activity_repository,
     category_repository,
     comment_repository,
+    dashboard_repository,
     tag_repository,
     task_repository,
     user_repository,
@@ -14,4 +15,6 @@ __all__ = [
     "tag_repository",
     "comment_repository",
     "activity_repository",
+    "dashboard_repository",
 ]
+

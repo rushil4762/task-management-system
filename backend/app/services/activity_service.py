@@ -31,3 +31,18 @@ async def get_activities_for_task(
         limit=limit,
         offset=offset,
     )
+
+
+async def get_recent_activities_for_user(
+    db: AsyncSession,
+    user_id: int,
+    limit: int = 10,
+    offset: int = 0,
+) -> tuple[list[TaskActivity], int]:
+    return await activity_repository.get_recent_activities_for_user(
+        db=db,
+        user_id=user_id,
+        limit=limit,
+        offset=offset,
+    )
+

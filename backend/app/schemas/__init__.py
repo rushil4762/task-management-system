@@ -23,6 +23,15 @@ from app.schemas.comment import (
     CommentResponse,
     CommentUpdate,
 )
+from app.schemas.dashboard import (
+    CategoryTaskCount,
+    CompletionMetrics,
+    CompletionTrendPoint,
+    DashboardSummaryResponse,
+    TaskDueDateCounts,
+    TaskPriorityCounts,
+    TaskStatusCounts,
+)
 from app.schemas.tag import (
     TagBase,
     TagCreate,
@@ -82,4 +91,12 @@ __all__ = [
     "ActivityListResponse",
     "ActivityActor",
     "TaskActivityAction",
+    "TaskStatusCounts",
+    "TaskPriorityCounts",
+    "TaskDueDateCounts",
+    "CompletionMetrics",
+    "CategoryTaskCount",
+    "CompletionTrendPoint",
+    "DashboardSummaryResponse",
 ]
+
