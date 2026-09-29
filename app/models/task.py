@@ -9,9 +9,12 @@ from app.core.database import Base
 from app.models.tag import task_tags
 
 if TYPE_CHECKING:
+    from app.models.activity import TaskActivity
     from app.models.category import Category
+    from app.models.comment import TaskComment
     from app.models.tag import Tag
     from app.models.user import User
+
 
 
 class TaskStatus(str, Enum):
@@ -146,6 +149,18 @@ class Task(Base):
         lazy="selectin",
     )
 
+    comments: Mapped[List["TaskComment"]] = relationship(
+        "TaskComment",
+        back_populates="task",
+        cascade="all, delete-orphan",
+    )
+
+    activities: Mapped[List["TaskActivity"]] = relationship(
+        "TaskActivity",
+        back_populates="task",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
+
         return f"<Task id={self.id} title={self.title!r} status={self.status} user_id={self.user_id}>"

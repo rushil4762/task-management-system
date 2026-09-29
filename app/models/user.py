@@ -7,9 +7,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.activity import TaskActivity
     from app.models.category import Category
+    from app.models.comment import TaskComment
     from app.models.tag import Tag
     from app.models.task import Task
+
 
 
 class User(Base):
@@ -83,5 +86,17 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
+    comments: Mapped[List["TaskComment"]] = relationship(
+        "TaskComment",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    activities: Mapped[List["TaskActivity"]] = relationship(
+        "TaskActivity",
+        back_populates="user",
+    )
+
     def __repr__(self) -> str:
+
         return f"<User id={self.id} email={self.email!r} active={self.is_active}>"

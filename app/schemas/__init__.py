@@ -1,3 +1,9 @@
+from app.schemas.activity import (
+    ActivityActor,
+    ActivityListResponse,
+    ActivityResponse,
+    TaskActivityAction,
+)
 from app.schemas.auth import (
     LoginRequest,
     RefreshTokenRequest,
@@ -9,6 +15,13 @@ from app.schemas.category import (
     CategoryCreate,
     CategoryResponse,
     CategoryUpdate,
+)
+from app.schemas.comment import (
+    CommentAuthor,
+    CommentBase,
+    CommentCreate,
+    CommentResponse,
+    CommentUpdate,
 )
 from app.schemas.tag import (
     TagBase,
@@ -60,5 +73,13 @@ __all__ = [
     "TagUpdate",
     "TagResponse",
     "TaskTagsAttachRequest",
+    "CommentBase",
+    "CommentCreate",
+    "CommentUpdate",
+    "CommentResponse",
+    "CommentAuthor",
+    "ActivityResponse",
+    "ActivityListResponse",
+    "ActivityActor",
+    "TaskActivityAction",
 ]
-

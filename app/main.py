@@ -6,10 +6,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import engine
+from app.routes.activities import router as activity_router
 from app.routes.auth import router as auth_router
 from app.routes.categories import router as category_router
+from app.routes.comments import router as comment_router
 from app.routes.tags import router as tag_router
 from app.routes.tasks import router as task_router
+
 
 
 @asynccontextmanager
@@ -42,6 +45,9 @@ app.include_router(auth_router)
 app.include_router(task_router)
 app.include_router(category_router)
 app.include_router(tag_router)
+app.include_router(comment_router)
+app.include_router(activity_router)
+
 
 
 

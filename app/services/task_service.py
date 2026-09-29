@@ -2,16 +2,19 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.activity import TaskActivity
 from app.models.category import Category
 from app.models.tag import Tag
 from app.models.task import Task, TaskPriority, TaskStatus
 from app.models.user import User
 from app.repositories import (
+    activity_repository,
     category_repository,
     tag_repository,
     task_repository,
     user_repository,
 )
+from app.schemas.activity import TaskActivityAction
 from app.schemas.task import TaskCreate, TaskUpdate
 
 
@@ -117,8 +120,21 @@ async def create_task(
     if tags:
         task.tags = tags
 
-    return await task_repository.create_task(db, task)
+    created_task = await task_repository.create_task(db, task)
 
+    # Record task_created activity
+    await activity_repository.create_activity(
+        db,
+        TaskActivity(
+            task_id=created_task.id,
+            user_id=user_id,
+            action=TaskActivityAction.TASK_CREATED.value,
+            description=f"Task '{created_task.title}' was created",
+        ),
+        commit=True,
+    )
+
+    return created_task
 
 
 async def get_task(
@@ -205,26 +221,80 @@ async def update_task(
             )
         return None
 
+    # Track pre-update state to record activities only on actual value changes
+    old_title = task_entity.title
+    old_description = task_entity.description
+    old_status = task_entity.status
+    old_priority = task_entity.priority
+    old_category_id = task_entity.category_id
+    old_assigned_to_id = task_entity.assigned_to_id
+    old_tag_ids = {t.id for t in task_entity.tags}
+    old_tags_by_id = {t.id: t.name for t in task_entity.tags}
+
     update_data = task_data.model_dump(
         exclude_unset=True,
     )
+    activities_to_create: list[TaskActivity] = []
 
     # Validate category update
     if "category_id" in update_data:
         category = await _validate_and_get_category(db, update_data["category_id"], user_id)
         task_entity.category_id = update_data["category_id"]
         task_entity.category = category
+        if update_data["category_id"] != old_category_id:
+            desc = f"Category changed to '{category.name}'" if category is not None else "Category was removed"
+            activities_to_create.append(
+                TaskActivity(
+                    task_id=task_entity.id,
+                    user_id=user_id,
+                    action=TaskActivityAction.CATEGORY_CHANGED.value,
+                    description=desc,
+                )
+            )
 
     # Validate assignee update
     if "assigned_to_id" in update_data:
         assignee = await _validate_and_get_assignee(db, update_data["assigned_to_id"])
         task_entity.assigned_to_id = update_data["assigned_to_id"]
         task_entity.assignee = assignee
+        if update_data["assigned_to_id"] != old_assigned_to_id:
+            desc = f"Task was assigned to {assignee.name}" if assignee is not None else "Task was unassigned"
+            activities_to_create.append(
+                TaskActivity(
+                    task_id=task_entity.id,
+                    user_id=user_id,
+                    action=TaskActivityAction.TASK_ASSIGNED.value,
+                    description=desc,
+                )
+            )
 
     # Validate tags update
     if "tag_ids" in update_data:
         new_tags = await _validate_and_get_tags(db, update_data["tag_ids"], user_id)
         task_entity.tags = new_tags
+        new_tag_ids = {t.id for t in new_tags}
+        added_ids = new_tag_ids - old_tag_ids
+        removed_ids = old_tag_ids - new_tag_ids
+        for tag in new_tags:
+            if tag.id in added_ids:
+                activities_to_create.append(
+                    TaskActivity(
+                        task_id=task_entity.id,
+                        user_id=user_id,
+                        action=TaskActivityAction.TAG_ADDED.value,
+                        description=f"Tag '{tag.name}' was added",
+                    )
+                )
+        for tid in removed_ids:
+            tname = old_tags_by_id.get(tid, str(tid))
+            activities_to_create.append(
+                TaskActivity(
+                    task_id=task_entity.id,
+                    user_id=user_id,
+                    action=TaskActivityAction.TAG_REMOVED.value,
+                    description=f"Tag '{tname}' was removed",
+                )
+            )
 
     # Automatic completion timestamp transitions based on status changes
     if "status" in update_data:
@@ -234,16 +304,80 @@ async def update_task(
         elif new_status != TaskStatus.COMPLETED and task_entity.status == TaskStatus.COMPLETED:
             task_entity.completed_at = None
 
+        if new_status != old_status:
+            if new_status == TaskStatus.COMPLETED:
+                activities_to_create.append(
+                    TaskActivity(
+                        task_id=task_entity.id,
+                        user_id=user_id,
+                        action=TaskActivityAction.TASK_COMPLETED.value,
+                        description="Task was marked as completed",
+                    )
+                )
+            elif old_status == TaskStatus.COMPLETED:
+                activities_to_create.append(
+                    TaskActivity(
+                        task_id=task_entity.id,
+                        user_id=user_id,
+                        action=TaskActivityAction.TASK_REOPENED.value,
+                        description=f"Task was reopened with status '{new_status.value}'",
+                    )
+                )
+            else:
+                activities_to_create.append(
+                    TaskActivity(
+                        task_id=task_entity.id,
+                        user_id=user_id,
+                        action=TaskActivityAction.STATUS_CHANGED.value,
+                        description=f"Status changed from '{old_status.value}' to '{new_status.value}'",
+                    )
+                )
+
+    # Priority change
+    if "priority" in update_data and update_data["priority"] != old_priority:
+        activities_to_create.append(
+            TaskActivity(
+                task_id=task_entity.id,
+                user_id=user_id,
+                action=TaskActivityAction.PRIORITY_CHANGED.value,
+                description=f"Priority changed from '{old_priority.value}' to '{update_data['priority'].value}'",
+            )
+        )
+
+    # Title / Description change
+    title_changed = "title" in update_data and update_data["title"] != old_title
+    desc_changed = "description" in update_data and update_data["description"] != old_description
+    if title_changed or desc_changed:
+        if title_changed and desc_changed:
+            desc = "Task title and description were updated"
+        elif title_changed:
+            desc = f"Task title updated to '{update_data['title']}'"
+        else:
+            desc = "Task description was updated"
+        activities_to_create.append(
+            TaskActivity(
+                task_id=task_entity.id,
+                user_id=user_id,
+                action=TaskActivityAction.TASK_UPDATED.value,
+                description=desc,
+            )
+        )
+
     for field in ["title", "description", "status", "priority", "due_date"]:
         if field in update_data:
             setattr(task_entity, field, update_data[field])
 
     task_entity.updated_at = datetime.now(timezone.utc)
 
-    return await task_repository.update_task(
+    updated_task = await task_repository.update_task(
         db,
         task_entity,
     )
+
+    for act in activities_to_create:
+        await activity_repository.create_activity(db, act, commit=True)
+
+    return updated_task
 
 
 async def mark_task_completed(
@@ -266,11 +400,24 @@ async def mark_task_completed(
             )
         return None
 
+    was_completed = task.status == TaskStatus.COMPLETED
     task.status = TaskStatus.COMPLETED
     task.completed_at = datetime.now(timezone.utc)
     task.updated_at = datetime.now(timezone.utc)
 
-    return await task_repository.update_task(db, task)
+    updated = await task_repository.update_task(db, task)
+    if not was_completed:
+        await activity_repository.create_activity(
+            db,
+            TaskActivity(
+                task_id=task.id,
+                user_id=user_id,
+                action=TaskActivityAction.TASK_COMPLETED.value,
+                description="Task was marked as completed",
+            ),
+            commit=True,
+        )
+    return updated
 
 
 async def reopen_task(
@@ -293,11 +440,24 @@ async def reopen_task(
             )
         return None
 
+    was_pending = task.status == TaskStatus.PENDING
     task.status = TaskStatus.PENDING
     task.completed_at = None
     task.updated_at = datetime.now(timezone.utc)
 
-    return await task_repository.update_task(db, task)
+    updated = await task_repository.update_task(db, task)
+    if not was_pending:
+        await activity_repository.create_activity(
+            db,
+            TaskActivity(
+                task_id=task.id,
+                user_id=user_id,
+                action=TaskActivityAction.TASK_REOPENED.value,
+                description="Task was reopened",
+            ),
+            commit=True,
+        )
+    return updated
 
 
 async def delete_task(
@@ -356,12 +516,26 @@ async def attach_tags_to_task(
 
     tags = await _validate_and_get_tags(db, tag_ids, user_id)
     existing_ids = {t.id for t in task.tags}
+    added_tags = []
     for tag in tags:
         if tag.id not in existing_ids:
             task.tags.append(tag)
+            added_tags.append(tag)
 
     task.updated_at = datetime.now(timezone.utc)
-    return await task_repository.update_task(db, task)
+    updated = await task_repository.update_task(db, task)
+    for tag in added_tags:
+        await activity_repository.create_activity(
+            db,
+            TaskActivity(
+                task_id=task.id,
+                user_id=user_id,
+                action=TaskActivityAction.TAG_ADDED.value,
+                description=f"Tag '{tag.name}' was added",
+            ),
+            commit=True,
+        )
+    return updated
 
 
 async def remove_tag_from_task(
@@ -387,9 +561,24 @@ async def remove_tag_from_task(
             detail="Task not found",
         )
 
-    task.tags = [t for t in task.tags if t.id != tag_id]
-    task.updated_at = datetime.now(timezone.utc)
-    return await task_repository.update_task(db, task)
+    removed_tag = next((t for t in task.tags if t.id == tag_id), None)
+    if removed_tag is not None:
+        task.tags = [t for t in task.tags if t.id != tag_id]
+        task.updated_at = datetime.now(timezone.utc)
+        updated = await task_repository.update_task(db, task)
+        await activity_repository.create_activity(
+            db,
+            TaskActivity(
+                task_id=task.id,
+                user_id=user_id,
+                action=TaskActivityAction.TAG_REMOVED.value,
+                description=f"Tag '{removed_tag.name}' was removed",
+            ),
+            commit=True,
+        )
+        return updated
+
+    return task
 
 
 async def bulk_delete_tasks(
