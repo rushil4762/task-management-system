@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
@@ -116,7 +116,12 @@ async def test_dashboard_summary_due_date_boundaries(
     """
     now = datetime.now(timezone.utc)
     past_due = (now - timedelta(days=2)).isoformat()
-    future_today = (now + timedelta(minutes=30)).isoformat()
+    end_of_today_dt = datetime.combine(now.date(), time(23, 59, 59), tzinfo=timezone.utc)
+    if now < end_of_today_dt:
+        due_today_dt = now + (end_of_today_dt - now) / 2
+    else:
+        due_today_dt = now
+    future_today = due_today_dt.isoformat()
     this_week = (now + timedelta(days=3)).isoformat()
     next_month = (now + timedelta(days=20)).isoformat()
 

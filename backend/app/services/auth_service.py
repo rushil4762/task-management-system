@@ -1,5 +1,8 @@
+import logging
+
 from fastapi import HTTPException, status
 from jwt.exceptions import PyJWTError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import (
@@ -14,15 +17,19 @@ from app.repositories import user_repository
 from app.schemas.auth import LoginRequest, TokenResponse
 from app.schemas.user import UserCreate
 
+logger = logging.getLogger(__name__)
+
 
 async def register_user(
     db: AsyncSession,
     user_data: UserCreate,
 ) -> User:
+    normalized_email = user_data.email.strip().lower()
+
     # 1. Check for duplicate email
     existing_user = await user_repository.get_user_by_email(
         db=db,
-        email=user_data.email,
+        email=normalized_email,
     )
     if existing_user is not None:
         raise HTTPException(
@@ -35,23 +42,35 @@ async def register_user(
 
     # 3. Create and persist user entity
     user = User(
-        name=user_data.name,
-        email=user_data.email.strip().lower(),
+        name=user_data.name.strip(),
+        email=normalized_email,
         password_hash=password_hash,
         is_active=True,
     )
-    return await user_repository.create_user(db=db, user=user)
+    try:
+        created_user = await user_repository.create_user(db=db, user=user)
+        logger.info("Successfully registered user ID %s", created_user.id)
+        return created_user
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A user with this email already exists",
+        )
 
 
 async def authenticate_user(
     db: AsyncSession,
     login_data: LoginRequest,
 ) -> TokenResponse:
+    normalized_email = login_data.email.strip().lower()
+
     user = await user_repository.get_user_by_email(
         db=db,
-        email=login_data.email,
+        email=normalized_email,
     )
     if user is None or not verify_password(login_data.password, user.password_hash):
+        logger.warning("Failed login attempt for email: %s", normalized_email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -59,6 +78,7 @@ async def authenticate_user(
         )
 
     if not user.is_active:
+        logger.warning("Login attempt for inactive user ID: %s", user.id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",
@@ -72,6 +92,7 @@ async def authenticate_user(
         subject=user.id,
     )
 
+    logger.info("User ID %s authenticated successfully", user.id)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,

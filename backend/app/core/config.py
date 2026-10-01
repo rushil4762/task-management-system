@@ -1,5 +1,5 @@
 from typing import List
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,6 +40,24 @@ class Settings(BaseSettings):
         elif isinstance(v, list):
             return v
         return []
+
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> "Settings":
+        if self.APP_ENV.lower() == "production":
+            if (
+                self.JWT_SECRET_KEY == "your-super-secret-jwt-key-replace-in-production"
+                or len(self.JWT_SECRET_KEY) < 32
+            ):
+                raise ValueError(
+                    "In production, JWT_SECRET_KEY must be a secure secret with at least 32 characters and cannot use the default placeholder."
+                )
+            if self.DEBUG:
+                raise ValueError("DEBUG must be set to False in production.")
+            if "*" in self.CORS_ORIGINS:
+                raise ValueError(
+                    "Wildcard '*' CORS origins are not permitted in production with credentials enabled."
+                )
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",
