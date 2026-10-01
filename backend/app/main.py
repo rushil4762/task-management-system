@@ -52,14 +52,17 @@ async def add_security_headers(request: Request, call_next):
 
 
 # Enable CORS for React and other web clients
-if settings.CORS_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+cors_kwargs = {
+    "allow_origins": settings.CORS_ORIGINS,
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+
+if settings.APP_ENV != "production":
+    cors_kwargs["allow_origin_regex"] = r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$"
+
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 
 # Register route modules
 app.include_router(auth_router)
