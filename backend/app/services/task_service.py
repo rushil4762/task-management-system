@@ -502,7 +502,7 @@ async def update_task(
         )
 
     # Due date change
-    if "due_date" in update_data and update_data["due_date"] != old_due_date:
+    if "due_date" in update_data and not activity_service.are_datetimes_equal(old_due_date, update_data["due_date"]):
         activities_to_create.append(
             TaskActivity(
                 task_id=task_entity.id,

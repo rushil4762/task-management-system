@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -45,6 +45,18 @@ def format_activity_date(dt: datetime | str | None) -> str:
         except Exception:
             return dt
     return f"{dt.day} {dt.strftime('%b')}"
+
+
+def are_datetimes_equal(d1: datetime | None, d2: datetime | None) -> bool:
+    if d1 is None and d2 is None:
+        return True
+    if d1 is None or d2 is None:
+        return False
+    if d1.tzinfo is not None and d2.tzinfo is None:
+        d2 = d2.replace(tzinfo=timezone.utc)
+    elif d1.tzinfo is None and d2.tzinfo is not None:
+        d1 = d1.replace(tzinfo=timezone.utc)
+    return d1 == d2
 
 
 def build_due_date_message(
