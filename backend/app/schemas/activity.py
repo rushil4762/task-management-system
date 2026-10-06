@@ -1,7 +1,8 @@
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TaskActivityAction(str, Enum):
@@ -9,6 +10,7 @@ class TaskActivityAction(str, Enum):
     TASK_UPDATED = "task_updated"
     STATUS_CHANGED = "status_changed"
     PRIORITY_CHANGED = "priority_changed"
+    DUE_DATE_CHANGED = "due_date_changed"
     TASK_COMPLETED = "task_completed"
     TASK_REOPENED = "task_reopened"
     TASK_ASSIGNED = "task_assigned"
@@ -31,11 +33,23 @@ class ActivityResponse(BaseModel):
     task_id: int
     user_id: int | None = None
     action: str
+    activity_type: str | None = None
+    message: str | None = None
     description: str
+    metadata: dict[str, Any] | None = Field(default=None, validation_alias="meta_data")
     created_at: datetime
     user: ActivityActor | None = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @model_validator(mode="after")
+    def populate_fields(self) -> "ActivityResponse":
+        if not self.activity_type:
+            self.activity_type = self.action
+        if not self.message:
+            self.message = self.description
+        return self
+
 
 
 class ActivityListResponse(BaseModel):

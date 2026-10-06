@@ -12,7 +12,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.repositories import user_repository
 from app.schemas.auth import LoginRequest, TokenResponse
 from app.schemas.user import UserCreate
@@ -40,11 +40,12 @@ async def register_user(
     # 2. Hash password securely
     password_hash = hash_password(user_data.password)
 
-    # 3. Create and persist user entity
+    # 3. Create and persist user entity with guaranteed EMPLOYEE role (prevent privilege escalation)
     user = User(
         name=user_data.name.strip(),
         email=normalized_email,
         password_hash=password_hash,
+        role=UserRole.EMPLOYEE,
         is_active=True,
     )
     try:

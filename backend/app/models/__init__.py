@@ -4,10 +4,11 @@ from app.models.comment import TaskComment
 from app.models.notification import Notification, NotificationType
 from app.models.tag import Tag, task_tags
 from app.models.task import Task, TaskPriority, TaskStatus
-from app.models.user import User
+from app.models.user import User, UserRole
 
 __all__ = [
     "User",
+    "UserRole",
     "Task",
     "TaskStatus",
     "TaskPriority",

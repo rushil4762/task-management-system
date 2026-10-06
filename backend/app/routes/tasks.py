@@ -6,12 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.task import TaskPriority, TaskStatus
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.tag import TaskTagsAttachRequest
 from app.schemas.task import (
     BulkDeleteRequest,
     BulkDeleteResponse,
     SortOrder,
+    TaskAssignRequest,
     TaskCreate,
     TaskListResponse,
     TaskResponse,
@@ -41,6 +42,7 @@ async def create_task(
         db=db,
         user_id=current_user.id,
         task_data=task_data,
+        role=current_user.role,
     )
 
 
@@ -154,6 +156,7 @@ async def get_tasks(
         view=view,
         sort_by=sort_by.value,
         order=order.value,
+        role=current_user.role,
     )
 
     return {
@@ -168,7 +171,7 @@ async def get_tasks(
     "/bulk-delete",
     response_model=BulkDeleteResponse,
     status_code=status.HTTP_200_OK,
-    summary="Bulk delete multiple tasks owned by the authenticated user",
+    summary="Bulk delete multiple tasks (CEO only)",
 )
 async def bulk_delete_tasks(
     bulk_data: BulkDeleteRequest,
@@ -179,6 +182,7 @@ async def bulk_delete_tasks(
         db=db,
         task_ids=bulk_data.task_ids,
         user_id=current_user.id,
+        role=current_user.role,
     )
 
     return {
@@ -190,7 +194,7 @@ async def bulk_delete_tasks(
 @router.get(
     "/{task_id}",
     response_model=TaskResponse,
-    summary="Get a task by ID (creator or assigned user)",
+    summary="Get a task by ID (creator or assigned employee)",
 )
 async def get_task(
     task_id: int = Path(..., ge=1, description="Unique integer ID of the task"),
@@ -201,6 +205,7 @@ async def get_task(
         db=db,
         task_id=task_id,
         user_id=current_user.id,
+        role=current_user.role,
     )
 
     if task is None:
@@ -212,15 +217,40 @@ async def get_task(
     return task
 
 
+@router.patch(
+    "/{task_id}/assign",
+    response_model=TaskResponse,
+    summary="Assign a task to an employee (CEO only)",
+)
+@router.post(
+    "/{task_id}/assign",
+    response_model=TaskResponse,
+    summary="Assign a task to an employee (alternative method, CEO only)",
+)
+async def assign_task(
+    assign_data: TaskAssignRequest,
+    task_id: int = Path(..., ge=1, description="Unique integer ID of the task"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await task_service.assign_task(
+        db=db,
+        task_id=task_id,
+        user_id=current_user.id,
+        assigned_to_id=assign_data.assigned_to_id,
+        role=current_user.role,
+    )
+
+
 @router.put(
     "/{task_id}",
     response_model=TaskResponse,
-    summary="Update an owned task by ID",
+    summary="Update a task by ID (CEO for full edit, Employee for status)",
 )
 @router.patch(
     "/{task_id}",
     response_model=TaskResponse,
-    summary="Partially update an owned task by ID",
+    summary="Partially update a task by ID",
 )
 async def update_task(
     task_data: TaskUpdate,
@@ -233,6 +263,7 @@ async def update_task(
         task=task_id,
         user_id=current_user.id,
         task_data=task_data,
+        role=current_user.role,
     )
 
     if updated_task is None:
@@ -247,12 +278,12 @@ async def update_task(
 @router.patch(
     "/{task_id}/complete",
     response_model=TaskResponse,
-    summary="Mark an owned task as completed",
+    summary="Mark a task as completed",
 )
 @router.post(
     "/{task_id}/complete",
     response_model=TaskResponse,
-    summary="Mark an owned task as completed (alternative method)",
+    summary="Mark a task as completed (alternative method)",
 )
 async def mark_task_completed(
     task_id: int = Path(..., ge=1, description="Unique integer ID of the task"),
@@ -263,6 +294,7 @@ async def mark_task_completed(
         db=db,
         task_id=task_id,
         user_id=current_user.id,
+        role=current_user.role,
     )
 
     if task is None:
@@ -293,6 +325,7 @@ async def reopen_task(
         db=db,
         task_id=task_id,
         user_id=current_user.id,
+        role=current_user.role,
     )
 
     if task is None:
@@ -307,7 +340,7 @@ async def reopen_task(
 @router.delete(
     "/{task_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete an owned task by ID",
+    summary="Delete a task by ID (CEO only)",
 )
 async def delete_task(
     task_id: int = Path(..., ge=1, description="Unique integer ID of the task"),
@@ -318,6 +351,7 @@ async def delete_task(
         db=db,
         task=task_id,
         user_id=current_user.id,
+        role=current_user.role,
     )
 
     if not deleted:
@@ -331,7 +365,7 @@ async def delete_task(
     "/{task_id}/tags",
     response_model=TaskResponse,
     status_code=status.HTTP_200_OK,
-    summary="Attach tags to a task",
+    summary="Attach tags to a task (CEO only)",
 )
 async def attach_tags_to_task(
     attach_data: TaskTagsAttachRequest,
@@ -344,6 +378,7 @@ async def attach_tags_to_task(
         task_id=task_id,
         tag_ids=attach_data.tag_ids,
         user_id=current_user.id,
+        role=current_user.role,
     )
 
 
@@ -351,7 +386,7 @@ async def attach_tags_to_task(
     "/{task_id}/tags/{tag_id}",
     response_model=TaskResponse,
     status_code=status.HTTP_200_OK,
-    summary="Remove a tag from a task",
+    summary="Remove a tag from a task (CEO only)",
 )
 async def remove_tag_from_task(
     task_id: int = Path(..., ge=1, description="Unique integer ID of the task"),
@@ -364,4 +399,5 @@ async def remove_tag_from_task(
         task_id=task_id,
         tag_id=tag_id,
         user_id=current_user.id,
+        role=current_user.role,
     )

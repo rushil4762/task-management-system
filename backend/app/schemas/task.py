@@ -143,3 +143,10 @@ class BulkDeleteRequest(BaseModel):
 class BulkDeleteResponse(BaseModel):
     deleted_count: int = Field(..., description="Number of tasks successfully deleted")
     message: str = Field(..., description="Operation summary message")
+
+
+class TaskAssignRequest(BaseModel):
+    assigned_to_id: int | None = Field(
+        default=None,
+        description="Employee user ID to assign the task to, or null to unassign",
+    )

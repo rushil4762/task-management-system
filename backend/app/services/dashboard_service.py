@@ -20,6 +20,7 @@ from app.services import activity_service
 async def get_dashboard_summary(
     db: AsyncSession,
     user_id: int,
+    is_employee: bool = False,
 ) -> DashboardSummaryResponse:
     """
     Generate comprehensive productivity summary for the authenticated user.
@@ -27,12 +28,17 @@ async def get_dashboard_summary(
     completion metrics, category distribution, and recent completion trend.
     """
     # 1. Fetch task aggregates (status, priority, due dates, completion)
-    metrics = await dashboard_repository.get_task_metrics(db=db, user_id=user_id)
+    metrics = await dashboard_repository.get_task_metrics(
+        db=db,
+        user_id=user_id,
+        is_employee=is_employee,
+    )
 
     # 2. Fetch category metrics (user-scoped categories + uncategorized)
     categories_raw = await dashboard_repository.get_category_metrics(
         db=db,
         user_id=user_id,
+        is_employee=is_employee,
     )
     category_summary = [
         CategoryTaskCount(
@@ -50,6 +56,7 @@ async def get_dashboard_summary(
         user_id=user_id,
         start_date=(now_utc - timedelta(days=14)).date(),
         end_date=now_utc.date(),
+        is_employee=is_employee,
     )
     completion_trend = [
         CompletionTrendPoint(
@@ -75,6 +82,7 @@ async def get_completion_trend(
     start_date: date | None = None,
     end_date: date | None = None,
     days: int = 30,
+    is_employee: bool = False,
 ) -> list[CompletionTrendPoint]:
     """
     Get completed task counts grouped by date within a validated date window.
@@ -105,6 +113,7 @@ async def get_completion_trend(
         user_id=user_id,
         start_date=start_date,
         end_date=end_date,
+        is_employee=is_employee,
     )
 
     return [

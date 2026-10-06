@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { CategoryPill, PriorityBadge, StatusBadge, TagPill } from '../common/Badge';
 import { formatDate, isDateOverdue } from '../../utils/formatters';
+import { useAuth } from '../../hooks/useAuth';
 
 export const TaskCard = ({
   task,
@@ -20,7 +21,9 @@ export const TaskCard = ({
   onToggleComplete,
   compact = false,
 }) => {
+  const { isCEO, user } = useAuth();
   const navigate = useNavigate();
+
   const isCompleted = task.status === 'completed';
   const isOverdue = isDateOverdue(task.due_date, task.status);
 
@@ -106,7 +109,9 @@ export const TaskCard = ({
           {task.assignee && (
             <div style={styles.metaItem} title={`Assigned to ${task.assignee.name}`}>
               <User size={13} color="#38bdf8" />
-              <span>{task.assignee.name}</span>
+              <span>
+                {task.assigned_to_id === user?.id ? 'Assigned to You' : task.assignee.name}
+              </span>
             </div>
           )}
         </div>
@@ -118,20 +123,22 @@ export const TaskCard = ({
               e.stopPropagation();
               onEdit?.(task);
             }}
-            title="Edit task"
+            title={isCEO ? "Edit task" : "Update status"}
           >
             <Edit2 size={14} />
           </button>
-          <button
-            style={{ ...styles.actionBtn, color: '#ef4444' }}
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete?.(task);
-            }}
-            title="Delete task"
-          >
-            <Trash2 size={14} />
-          </button>
+          {isCEO && (
+            <button
+              style={{ ...styles.actionBtn, color: '#ef4444' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete?.(task);
+              }}
+              title="Delete task"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
+from app.models.user import User, UserRole
 
 
 async def create_user(
@@ -38,6 +38,20 @@ async def get_user_by_email(
     return result.scalar_one_or_none()
 
 
+async def get_active_employees(
+    db: AsyncSession,
+) -> list[User]:
+    result = await db.execute(
+        select(User)
+        .where(
+            User.role == UserRole.EMPLOYEE,
+            User.is_active.is_(True),
+        )
+        .order_by(User.name.asc())
+    )
+    return list(result.scalars().all())
+
+
 async def update_user(
     db: AsyncSession,
     user: User,
@@ -49,3 +63,4 @@ async def update_user(
     except Exception:
         await db.rollback()
         raise
+

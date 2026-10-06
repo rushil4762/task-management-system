@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import decode_token
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.repositories import user_repository
 
 oauth2_scheme = OAuth2PasswordBearer(
@@ -44,3 +44,22 @@ async def get_current_user(
         )
 
     return user
+
+
+def require_role(*roles: UserRole):
+    async def role_checker(
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        if current_user.role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Operation not permitted for role {current_user.role.value}",
+            )
+        return current_user
+
+    return role_checker
+
+
+require_ceo = require_role(UserRole.CEO)
+require_employee_or_ceo = require_role(UserRole.CEO, UserRole.EMPLOYEE)
+

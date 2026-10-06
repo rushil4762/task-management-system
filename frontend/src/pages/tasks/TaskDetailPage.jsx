@@ -19,12 +19,15 @@ import { TaskModal } from '../../components/tasks/TaskModal';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { LoadingScreen } from '../../components/common/Spinner';
 import { useToast } from '../../hooks/useToast';
+import { useAuth } from '../../hooks/useAuth';
 import { formatDate, isDateOverdue } from '../../utils/formatters';
 
 export const TaskDetailPage = () => {
+  const { isCEO } = useAuth();
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+
 
   const [task, setTask] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -117,15 +120,17 @@ export const TaskDetailPage = () => {
             onClick={() => setEditModalOpen(true)}
           >
             <Edit2 size={15} />
-            <span>Edit</span>
+            <span>{isCEO ? 'Edit' : 'Update Status'}</span>
           </button>
-          <button
-            className="btn btn-danger btn-sm"
-            onClick={() => setDeleteModalOpen(true)}
-          >
-            <Trash2 size={15} />
-            <span>Delete</span>
-          </button>
+          {isCEO && (
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={() => setDeleteModalOpen(true)}
+            >
+              <Trash2 size={15} />
+              <span>Delete</span>
+            </button>
+          )}
         </div>
       </div>
 

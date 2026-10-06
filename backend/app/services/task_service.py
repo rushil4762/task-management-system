@@ -7,7 +7,7 @@ from app.models.category import Category
 from app.models.notification import NotificationType
 from app.models.tag import Tag
 from app.models.task import Task, TaskPriority, TaskStatus
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.repositories import (
     activity_repository,
     category_repository,
@@ -17,7 +17,7 @@ from app.repositories import (
 )
 from app.schemas.activity import TaskActivityAction
 from app.schemas.task import TaskCreate, TaskUpdate
-from app.services import notification_service
+from app.services import activity_service, notification_service
 
 
 
@@ -89,7 +89,14 @@ async def create_task(
     db: AsyncSession,
     user_id: int,
     task_data: TaskCreate,
+    role: UserRole = UserRole.CEO,
 ) -> Task:
+    if role == UserRole.EMPLOYEE and task_data.assigned_to_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only CEO can assign tasks",
+        )
+
     # 1. Validate category ownership if specified
     category = await _validate_and_get_category(db, task_data.category_id, user_id)
 
@@ -126,13 +133,16 @@ async def create_task(
     created_task = await task_repository.create_task(db, task)
 
     # Record task_created activity
+    actor = await user_repository.get_user_by_id(db, user_id)
+    actor_name = actor.name if actor else "User"
     await activity_repository.create_activity(
         db,
         TaskActivity(
             task_id=created_task.id,
             user_id=user_id,
             action=TaskActivityAction.TASK_CREATED.value,
-            description=f"Task '{created_task.title}' was created",
+            description=f"{actor_name} created this task",
+            meta_data={"title": created_task.title},
         ),
         commit=True,
     )
@@ -169,7 +179,22 @@ async def get_task(
     db: AsyncSession,
     task_id: int,
     user_id: int,
+    role: UserRole = UserRole.CEO,
 ) -> Task | None:
+    if role == UserRole.EMPLOYEE:
+        task = await task_repository.get_task_by_id(
+            db=db,
+            task_id=task_id,
+        )
+        if task is None:
+            return None
+        if task.assigned_to_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You cannot access tasks not assigned to you",
+            )
+        return task
+
     # Allows viewing if user is owner OR assignee
     return await task_repository.get_task_by_id(
         db=db,
@@ -199,7 +224,14 @@ async def get_tasks(
     view: str = "all",
     sort_by: str = "created_at",
     order: str = "desc",
+    role: UserRole = UserRole.CEO,
 ) -> tuple[list[Task], int]:
+    target_view = view
+    target_assigned_to = assigned_to_id
+    if role == UserRole.EMPLOYEE:
+        target_view = "assigned"
+        target_assigned_to = user_id
+
     return await task_repository.get_tasks(
         db=db,
         user_id=user_id,
@@ -216,8 +248,8 @@ async def get_tasks(
         category_name=category_name,
         tag_id=tag_id,
         tag_name=tag_name,
-        assigned_to_id=assigned_to_id,
-        view=view,
+        assigned_to_id=target_assigned_to,
+        view=target_view,
         sort_by=sort_by,
         order=order,
     )
@@ -228,6 +260,7 @@ async def update_task(
     task: Task | int,
     user_id: int,
     task_data: TaskUpdate,
+    role: UserRole = UserRole.CEO,
 ) -> Task | None:
     task_entity: Task | None
     if isinstance(task, int):
@@ -239,6 +272,71 @@ async def update_task(
             return None
     else:
         task_entity = task
+
+    if role == UserRole.EMPLOYEE:
+        if task_entity.assigned_to_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You can only update tasks assigned to you",
+            )
+        update_dict = task_data.model_dump(exclude_unset=True)
+        if "assigned_to_id" in update_dict:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only CEO can assign tasks",
+            )
+        restricted_keys = set(update_dict.keys()) - {"status"}
+        if restricted_keys:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Employees are only permitted to update task status",
+            )
+        if "status" in update_dict:
+            new_status = update_dict["status"]
+            old_status = task_entity.status
+            task_entity.status = new_status
+            if new_status == TaskStatus.COMPLETED and old_status != TaskStatus.COMPLETED:
+                task_entity.completed_at = datetime.now(timezone.utc)
+            elif new_status != TaskStatus.COMPLETED and old_status == TaskStatus.COMPLETED:
+                task_entity.completed_at = None
+            task_entity.updated_at = datetime.now(timezone.utc)
+            updated_task = await task_repository.update_task(db, task_entity)
+            if new_status != old_status:
+                actor = await user_repository.get_user_by_id(db, user_id)
+                actor_name = actor.name if actor else "User"
+                if new_status == TaskStatus.COMPLETED:
+                    act_action = TaskActivityAction.TASK_COMPLETED.value
+                    desc = f"{actor_name} completed the task"
+                elif old_status == TaskStatus.COMPLETED:
+                    act_action = TaskActivityAction.TASK_REOPENED.value
+                    desc = f"{actor_name} reopened the task"
+                else:
+                    act_action = TaskActivityAction.STATUS_CHANGED.value
+                    desc = activity_service.build_status_message(actor_name, old_status, new_status)
+
+                await activity_repository.create_activity(
+                    db,
+                    TaskActivity(
+                        task_id=task_entity.id,
+                        user_id=user_id,
+                        action=act_action,
+                        description=desc,
+                        meta_data={"old_value": old_status.value, "new_value": new_status.value},
+                    ),
+                    commit=True,
+                )
+                if old_status != TaskStatus.COMPLETED and new_status == TaskStatus.COMPLETED:
+                    await notification_service.create_notification(
+                        db=db,
+                        user_id=task_entity.user_id,
+                        task_id=task_entity.id,
+                        type=NotificationType.TASK_COMPLETED,
+                        title=f"Task Completed: {task_entity.title}",
+                        message=f"Task '{task_entity.title}' was marked as completed.",
+                        event_key=f"completed_{task_entity.id}",
+                    )
+            return updated_task
+        return task_entity
 
     # Enforce strict ownership: assignees cannot modify tasks
     if task_entity.user_id != user_id:
@@ -259,40 +357,65 @@ async def update_task(
     old_tag_ids = {t.id for t in task_entity.tags}
     old_tags_by_id = {t.id: t.name for t in task_entity.tags}
 
+    old_due_date = task_entity.due_date
+
     update_data = task_data.model_dump(
         exclude_unset=True,
     )
     activities_to_create: list[TaskActivity] = []
 
+    actor = await user_repository.get_user_by_id(db, user_id)
+    actor_name = actor.name if actor else "User"
+
     # Validate category update
     if "category_id" in update_data:
         category = await _validate_and_get_category(db, update_data["category_id"], user_id)
+        old_category_name = task_entity.category.name if task_entity.category else None
         task_entity.category_id = update_data["category_id"]
         task_entity.category = category
         if update_data["category_id"] != old_category_id:
-            desc = f"Category changed to '{category.name}'" if category is not None else "Category was removed"
+            new_category_name = category.name if category is not None else None
+            desc = activity_service.build_category_message(actor_name, old_category_name, new_category_name)
+            meta = {
+                "old_category_id": old_category_id,
+                "old_category_name": old_category_name,
+                "new_category_id": update_data["category_id"],
+                "new_category_name": new_category_name,
+                "old_value": old_category_name,
+                "new_value": new_category_name,
+            }
             activities_to_create.append(
                 TaskActivity(
                     task_id=task_entity.id,
                     user_id=user_id,
                     action=TaskActivityAction.CATEGORY_CHANGED.value,
                     description=desc,
+                    meta_data=meta,
                 )
             )
 
     # Validate assignee update
     if "assigned_to_id" in update_data:
         assignee = await _validate_and_get_assignee(db, update_data["assigned_to_id"])
+        old_assignee_name = task_entity.assignee.name if task_entity.assignee else None
         task_entity.assigned_to_id = update_data["assigned_to_id"]
         task_entity.assignee = assignee
         if update_data["assigned_to_id"] != old_assigned_to_id:
-            desc = f"Task was assigned to {assignee.name}" if assignee is not None else "Task was unassigned"
+            new_assignee_name = assignee.name if assignee is not None else None
+            desc = activity_service.build_assignment_message(actor_name, new_assignee_name)
+            meta = {
+                "old_assignee_id": old_assigned_to_id,
+                "old_assignee_name": old_assignee_name,
+                "new_assignee_id": update_data["assigned_to_id"],
+                "new_assignee_name": new_assignee_name,
+            }
             activities_to_create.append(
                 TaskActivity(
                     task_id=task_entity.id,
                     user_id=user_id,
                     action=TaskActivityAction.TASK_ASSIGNED.value,
                     description=desc,
+                    meta_data=meta,
                 )
             )
 
@@ -310,7 +433,8 @@ async def update_task(
                         task_id=task_entity.id,
                         user_id=user_id,
                         action=TaskActivityAction.TAG_ADDED.value,
-                        description=f"Tag '{tag.name}' was added",
+                        description=f"{actor_name} added tag {tag.name}",
+                        meta_data={"tag_id": tag.id, "tag_name": tag.name},
                     )
                 )
         for tid in removed_ids:
@@ -320,7 +444,8 @@ async def update_task(
                     task_id=task_entity.id,
                     user_id=user_id,
                     action=TaskActivityAction.TAG_REMOVED.value,
-                    description=f"Tag '{tname}' was removed",
+                    description=f"{actor_name} removed tag {tname}",
+                    meta_data={"tag_id": tid, "tag_name": tname},
                 )
             )
 
@@ -339,7 +464,8 @@ async def update_task(
                         task_id=task_entity.id,
                         user_id=user_id,
                         action=TaskActivityAction.TASK_COMPLETED.value,
-                        description="Task was marked as completed",
+                        description=f"{actor_name} completed the task",
+                        meta_data={"old_value": old_status.value, "new_value": new_status.value},
                     )
                 )
             elif old_status == TaskStatus.COMPLETED:
@@ -348,7 +474,8 @@ async def update_task(
                         task_id=task_entity.id,
                         user_id=user_id,
                         action=TaskActivityAction.TASK_REOPENED.value,
-                        description=f"Task was reopened with status '{new_status.value}'",
+                        description=f"{actor_name} reopened the task",
+                        meta_data={"old_value": old_status.value, "new_value": new_status.value},
                     )
                 )
             else:
@@ -357,7 +484,8 @@ async def update_task(
                         task_id=task_entity.id,
                         user_id=user_id,
                         action=TaskActivityAction.STATUS_CHANGED.value,
-                        description=f"Status changed from '{old_status.value}' to '{new_status.value}'",
+                        description=activity_service.build_status_message(actor_name, old_status, new_status),
+                        meta_data={"old_value": old_status.value, "new_value": new_status.value},
                     )
                 )
 
@@ -368,7 +496,23 @@ async def update_task(
                 task_id=task_entity.id,
                 user_id=user_id,
                 action=TaskActivityAction.PRIORITY_CHANGED.value,
-                description=f"Priority changed from '{old_priority.value}' to '{update_data['priority'].value}'",
+                description=activity_service.build_priority_message(actor_name, old_priority, update_data["priority"]),
+                meta_data={"old_value": old_priority.value, "new_value": update_data["priority"].value},
+            )
+        )
+
+    # Due date change
+    if "due_date" in update_data and update_data["due_date"] != old_due_date:
+        activities_to_create.append(
+            TaskActivity(
+                task_id=task_entity.id,
+                user_id=user_id,
+                action=TaskActivityAction.DUE_DATE_CHANGED.value,
+                description=activity_service.build_due_date_message(actor_name, old_due_date, update_data["due_date"]),
+                meta_data={
+                    "old_value": old_due_date.isoformat() if old_due_date else None,
+                    "new_value": update_data["due_date"].isoformat() if update_data["due_date"] else None,
+                },
             )
         )
 
@@ -376,18 +520,26 @@ async def update_task(
     title_changed = "title" in update_data and update_data["title"] != old_title
     desc_changed = "description" in update_data and update_data["description"] != old_description
     if title_changed or desc_changed:
+        fields = []
+        if title_changed:
+            fields.append("title")
+        if desc_changed:
+            fields.append("description")
+
         if title_changed and desc_changed:
-            desc = "Task title and description were updated"
+            desc = f"{actor_name} updated task title and description"
         elif title_changed:
-            desc = f"Task title updated to '{update_data['title']}'"
+            desc = f"{actor_name} updated task title to '{update_data['title']}'"
         else:
-            desc = "Task description was updated"
+            desc = f"{actor_name} updated task description"
+
         activities_to_create.append(
             TaskActivity(
                 task_id=task_entity.id,
                 user_id=user_id,
                 action=TaskActivityAction.TASK_UPDATED.value,
                 description=desc,
+                meta_data={"fields_updated": fields, "old_title": old_title, "new_title": update_data.get("title", old_title)},
             )
         )
 
@@ -450,10 +602,82 @@ async def update_task(
     return updated_task
 
 
+async def assign_task(
+    db: AsyncSession,
+    task_id: int,
+    user_id: int,
+    assigned_to_id: int | None,
+    role: UserRole = UserRole.CEO,
+) -> Task:
+    if role != UserRole.CEO:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only CEO can assign tasks",
+        )
+
+    task = await task_repository.get_task_by_id(db=db, task_id=task_id)
+    if task is None or task.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    old_assigned_to_id = task.assigned_to_id
+    if old_assigned_to_id == assigned_to_id:
+        return task
+
+    old_assignee_name = task.assignee.name if task.assignee else None
+    assignee = await _validate_and_get_assignee(db, assigned_to_id)
+    task.assigned_to_id = assigned_to_id
+    task.assignee = assignee
+    task.updated_at = datetime.now(timezone.utc)
+
+    updated_task = await task_repository.update_task(db, task)
+    actor = await user_repository.get_user_by_id(db, user_id)
+    actor_name = actor.name if actor else "User"
+    new_assignee_name = assignee.name if assignee is not None else None
+    desc = activity_service.build_assignment_message(actor_name, new_assignee_name)
+    meta = {
+        "old_assignee_id": old_assigned_to_id,
+        "old_assignee_name": old_assignee_name,
+        "new_assignee_id": assigned_to_id,
+        "new_assignee_name": new_assignee_name,
+    }
+    await activity_repository.create_activity(
+        db,
+        TaskActivity(
+            task_id=task.id,
+            user_id=user_id,
+            action=TaskActivityAction.TASK_ASSIGNED.value,
+            description=desc,
+            meta_data=meta,
+        ),
+        commit=True,
+    )
+
+    if (
+        old_assigned_to_id != updated_task.assigned_to_id
+        and updated_task.assigned_to_id is not None
+        and updated_task.assigned_to_id != user_id
+    ):
+        await notification_service.create_notification(
+            db=db,
+            user_id=updated_task.assigned_to_id,
+            task_id=updated_task.id,
+            type=NotificationType.TASK_ASSIGNED,
+            title=f"Task Assigned: {updated_task.title}",
+            message=f"You have been assigned to task '{updated_task.title}'.",
+            event_key=f"assigned_{updated_task.id}_{updated_task.assigned_to_id}",
+        )
+
+    return updated_task
+
+
 async def mark_task_completed(
     db: AsyncSession,
     task_id: int,
     user_id: int,
+    role: UserRole = UserRole.CEO,
 ) -> Task | None:
     task = await task_repository.get_task_by_id(
         db=db,
@@ -462,28 +686,39 @@ async def mark_task_completed(
     if task is None:
         return None
 
-    if task.user_id != user_id:
-        if task.assigned_to_id == user_id:
+    if role == UserRole.EMPLOYEE:
+        if task.assigned_to_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not authorized: only the task owner can complete tasks",
+                detail="Forbidden: You can only complete tasks assigned to you",
             )
-        return None
+    else:
+        if task.user_id != user_id:
+            if task.assigned_to_id == user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Not authorized: only the task owner can complete tasks",
+                )
+            return None
 
     was_completed = task.status == TaskStatus.COMPLETED
+    old_status_val = task.status.value
     task.status = TaskStatus.COMPLETED
     task.completed_at = datetime.now(timezone.utc)
     task.updated_at = datetime.now(timezone.utc)
 
     updated = await task_repository.update_task(db, task)
     if not was_completed:
+        actor = await user_repository.get_user_by_id(db, user_id)
+        actor_name = actor.name if actor else "User"
         await activity_repository.create_activity(
             db,
             TaskActivity(
                 task_id=task.id,
                 user_id=user_id,
                 action=TaskActivityAction.TASK_COMPLETED.value,
-                description="Task was marked as completed",
+                description=f"{actor_name} completed the task",
+                meta_data={"old_value": old_status_val, "new_value": "completed"},
             ),
             commit=True,
         )
@@ -519,6 +754,7 @@ async def reopen_task(
     db: AsyncSession,
     task_id: int,
     user_id: int,
+    role: UserRole = UserRole.CEO,
 ) -> Task | None:
     task = await task_repository.get_task_by_id(
         db=db,
@@ -527,28 +763,39 @@ async def reopen_task(
     if task is None:
         return None
 
-    if task.user_id != user_id:
-        if task.assigned_to_id == user_id:
+    if role == UserRole.EMPLOYEE:
+        if task.assigned_to_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not authorized: only the task owner can reopen tasks",
+                detail="Forbidden: You can only reopen tasks assigned to you",
             )
-        return None
+    else:
+        if task.user_id != user_id:
+            if task.assigned_to_id == user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Not authorized: only the task owner can reopen tasks",
+                )
+            return None
 
     was_pending = task.status == TaskStatus.PENDING
+    old_status_val = task.status.value
     task.status = TaskStatus.PENDING
     task.completed_at = None
     task.updated_at = datetime.now(timezone.utc)
 
     updated = await task_repository.update_task(db, task)
     if not was_pending:
+        actor = await user_repository.get_user_by_id(db, user_id)
+        actor_name = actor.name if actor else "User"
         await activity_repository.create_activity(
             db,
             TaskActivity(
                 task_id=task.id,
                 user_id=user_id,
                 action=TaskActivityAction.TASK_REOPENED.value,
-                description="Task was reopened",
+                description=f"{actor_name} reopened the task",
+                meta_data={"old_value": old_status_val, "new_value": "pending"},
             ),
             commit=True,
         )
@@ -559,7 +806,14 @@ async def delete_task(
     db: AsyncSession,
     task: Task | int,
     user_id: int,
+    role: UserRole = UserRole.CEO,
 ) -> bool:
+    if role == UserRole.EMPLOYEE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Employees cannot delete tasks",
+        )
+
     task_entity: Task | None
     if isinstance(task, int):
         task_entity = await task_repository.get_task_by_id(
@@ -591,7 +845,14 @@ async def attach_tags_to_task(
     task_id: int,
     tag_ids: list[int],
     user_id: int,
+    role: UserRole = UserRole.CEO,
 ) -> Task:
+    if role == UserRole.EMPLOYEE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Employees cannot modify task tags",
+        )
+
     task = await task_repository.get_task_by_id(db, task_id)
     if task is None:
         raise HTTPException(
@@ -619,17 +880,21 @@ async def attach_tags_to_task(
 
     task.updated_at = datetime.now(timezone.utc)
     updated = await task_repository.update_task(db, task)
-    for tag in added_tags:
-        await activity_repository.create_activity(
-            db,
-            TaskActivity(
-                task_id=task.id,
-                user_id=user_id,
-                action=TaskActivityAction.TAG_ADDED.value,
-                description=f"Tag '{tag.name}' was added",
-            ),
-            commit=True,
-        )
+    if added_tags:
+        actor = await user_repository.get_user_by_id(db, user_id)
+        actor_name = actor.name if actor else "User"
+        for tag in added_tags:
+            await activity_repository.create_activity(
+                db,
+                TaskActivity(
+                    task_id=task.id,
+                    user_id=user_id,
+                    action=TaskActivityAction.TAG_ADDED.value,
+                    description=f"{actor_name} added tag {tag.name}",
+                    meta_data={"tag_id": tag.id, "tag_name": tag.name},
+                ),
+                commit=True,
+            )
     return updated
 
 
@@ -638,7 +903,14 @@ async def remove_tag_from_task(
     task_id: int,
     tag_id: int,
     user_id: int,
+    role: UserRole = UserRole.CEO,
 ) -> Task:
+    if role == UserRole.EMPLOYEE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Employees cannot modify task tags",
+        )
+
     task = await task_repository.get_task_by_id(db, task_id)
     if task is None:
         raise HTTPException(
@@ -658,6 +930,8 @@ async def remove_tag_from_task(
 
     removed_tag = next((t for t in task.tags if t.id == tag_id), None)
     if removed_tag is not None:
+        actor = await user_repository.get_user_by_id(db, user_id)
+        actor_name = actor.name if actor else "User"
         task.tags = [t for t in task.tags if t.id != tag_id]
         task.updated_at = datetime.now(timezone.utc)
         updated = await task_repository.update_task(db, task)
@@ -667,7 +941,8 @@ async def remove_tag_from_task(
                 task_id=task.id,
                 user_id=user_id,
                 action=TaskActivityAction.TAG_REMOVED.value,
-                description=f"Tag '{removed_tag.name}' was removed",
+                description=f"{actor_name} removed tag {removed_tag.name}",
+                meta_data={"tag_id": removed_tag.id, "tag_name": removed_tag.name},
             ),
             commit=True,
         )
@@ -680,7 +955,14 @@ async def bulk_delete_tasks(
     db: AsyncSession,
     task_ids: list[int],
     user_id: int,
+    role: UserRole = UserRole.CEO,
 ) -> int:
+    if role == UserRole.EMPLOYEE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Employees cannot delete tasks",
+        )
+
     if not task_ids:
         return 0
     return await task_repository.delete_tasks_bulk(

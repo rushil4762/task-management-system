@@ -46,13 +46,11 @@ async def get_category_by_name(
 
 async def get_categories(
     db: AsyncSession,
-    user_id: int,
+    user_id: int | None = None,
 ) -> list[Category]:
-    query = (
-        select(Category)
-        .where(Category.user_id == user_id)
-        .order_by(Category.name.asc())
-    )
+    query = select(Category).order_by(Category.name.asc())
+    if user_id is not None:
+        query = query.where(Category.user_id == user_id)
     result = await db.execute(query)
     return list(result.scalars().all())
 

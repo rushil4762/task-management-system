@@ -12,15 +12,21 @@ import {
 import { useAuth } from '../../hooks/useAuth';
 
 export const Sidebar = ({ isOpen, onClose }) => {
-  const { user, logout } = useAuth();
+  const { user, isCEO, logout } = useAuth();
 
-  const navItems = [
-    { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/tasks', label: 'Tasks List', icon: CheckSquare },
-    { to: '/kanban', label: 'Kanban Board', icon: Kanban },
-    { to: '/categories', label: 'Categories', icon: FolderTree },
-    { to: '/tags', label: 'Tags', icon: Tag },
-  ];
+  const navItems = isCEO
+    ? [
+        { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+        { to: '/tasks', label: 'Tasks', icon: CheckSquare },
+        { to: '/kanban', label: 'Kanban Board', icon: Kanban },
+        { to: '/categories', label: 'Categories', icon: FolderTree },
+        { to: '/tags', label: 'Tags', icon: Tag },
+      ]
+    : [
+        { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+        { to: '/tasks', label: 'My Assigned Tasks', icon: CheckSquare },
+        { to: '/kanban', label: 'Kanban Board', icon: Kanban },
+      ];
 
   return (
     <>
@@ -71,7 +77,24 @@ export const Sidebar = ({ isOpen, onClose }) => {
               <User size={18} color="#ffffff" />
             </div>
             <div style={styles.userInfo}>
-              <div style={styles.userName}>{user?.name || 'User'}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={styles.userName}>{user?.name || 'User'}</span>
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: '4px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    backgroundColor: isCEO ? 'rgba(129, 140, 248, 0.2)' : 'rgba(52, 211, 153, 0.2)',
+                    color: isCEO ? '#a5b4fc' : '#6ee7b7',
+                    border: `1px solid ${isCEO ? 'rgba(129, 140, 248, 0.4)' : 'rgba(52, 211, 153, 0.4)'}`,
+                  }}
+                >
+                  {user?.role || 'EMPLOYEE'}
+                </span>
+              </div>
               <div style={styles.userEmail}>{user?.email || ''}</div>
             </div>
           </div>

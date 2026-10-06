@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.models.user import UserRole
+
 
 class UserBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Full name of the user")
@@ -23,6 +25,10 @@ class UserCreate(UserBase):
         max_length=128,
         description="User password (minimum 8 characters)",
     )
+    role: str | None = Field(
+        default=None,
+        description="Role is ignored on public registration; all accounts default to EMPLOYEE",
+    )
 
     @field_validator("password")
     @classmethod
@@ -34,8 +40,19 @@ class UserCreate(UserBase):
 
 class UserResponse(UserBase):
     id: int
+    role: UserRole = UserRole.EMPLOYEE
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EmployeeResponse(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+    role: UserRole
+    is_active: bool
 
     model_config = ConfigDict(from_attributes=True)

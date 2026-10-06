@@ -63,10 +63,17 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  const role = user?.role || 'EMPLOYEE';
+  const isCEO = role === 'CEO';
+  const isEmployee = role === 'EMPLOYEE';
+
   return (
     <AuthContext.Provider
       value={{
         user,
+        role,
+        isCEO,
+        isEmployee,
         loading,
         isAuthenticated: !!user,
         login,

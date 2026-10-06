@@ -2,11 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { categoriesApi } from '../../api/categories';
 import { tagsApi } from '../../api/tags';
 import { tasksApi } from '../../api/tasks';
+import { usersApi } from '../../api/users';
+import { useAuth } from '../../hooks/useAuth';
 import { Modal } from '../common/Modal';
 import { useToast } from '../../hooks/useToast';
 import { TaskPriority, TaskStatus } from '../../utils/constants';
 
 export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
+  const { isCEO } = useAuth();
   const toast = useToast();
   const isEdit = !!task;
 
@@ -21,10 +24,11 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
 
   const [categories, setCategories] = useState([]);
   const [availableTags, setAvailableTags] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Fetch available categories and tags when modal opens
+  // Fetch available categories, tags, and employees when modal opens
   useEffect(() => {
     if (isOpen) {
       loadDependencies();
@@ -57,12 +61,16 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
 
   const loadDependencies = async () => {
     try {
-      const [cats, tags] = await Promise.all([
-        categoriesApi.getCategories(),
-        tagsApi.getTags(),
-      ]);
+      const promises = [categoriesApi.getCategories(), tagsApi.getTags()];
+      if (isCEO) {
+        promises.push(usersApi.getEmployees());
+      }
+      const [cats, tags, emps] = await Promise.all(promises);
       setCategories(cats || []);
       setAvailableTags(tags || []);
+      if (emps) {
+        setEmployees(emps);
+      }
     } catch {
       // Non-critical if tags fail
     }
@@ -76,7 +84,7 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title.trim()) {
+    if (isCEO && !title.trim()) {
       setError('Task title is required');
       return;
     }
@@ -84,22 +92,36 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
     setLoading(true);
     setError('');
 
-    const payload = {
-      title: title.trim(),
-      description: description.trim() ? description.trim() : null,
-      status,
-      priority,
-      due_date: dueDate ? new Date(dueDate).toISOString() : null,
-      category_id: categoryId ? parseInt(categoryId, 10) : null,
-      tag_ids: selectedTagIds.length > 0 ? selectedTagIds : null,
-      assigned_to_id: assignedToId ? parseInt(assignedToId, 10) : null,
-    };
-
     try {
       if (isEdit) {
-        await tasksApi.updateTask(task.id, payload);
+        if (isCEO) {
+          const payload = {
+            title: title.trim(),
+            description: description.trim() ? description.trim() : null,
+            status,
+            priority,
+            due_date: dueDate ? new Date(dueDate).toISOString() : null,
+            category_id: categoryId ? parseInt(categoryId, 10) : null,
+            tag_ids: selectedTagIds.length > 0 ? selectedTagIds : null,
+            assigned_to_id: assignedToId ? parseInt(assignedToId, 10) : null,
+          };
+          await tasksApi.updateTask(task.id, payload);
+        } else {
+          // Employee can only update status
+          await tasksApi.patchTask(task.id, { status });
+        }
         toast.success('Task updated successfully');
       } else {
+        const payload = {
+          title: title.trim(),
+          description: description.trim() ? description.trim() : null,
+          status,
+          priority,
+          due_date: dueDate ? new Date(dueDate).toISOString() : null,
+          category_id: categoryId ? parseInt(categoryId, 10) : null,
+          tag_ids: selectedTagIds.length > 0 ? selectedTagIds : null,
+          ...(isCEO && assignedToId ? { assigned_to_id: parseInt(assignedToId, 10) } : {}),
+        };
         await tasksApi.createTask(payload);
         toast.success('Task created successfully');
       }
@@ -117,7 +139,7 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={isEdit ? 'Edit Task' : 'Create New Task'}
+      title={isEdit ? (isCEO ? 'Edit Task' : 'Update Task Status') : 'Create New Task'}
       maxWidth="620px"
     >
       <form onSubmit={handleSubmit}>
@@ -125,7 +147,7 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
 
         <div className="form-group">
           <label className="form-label">
-            Task Title <span style={{ color: 'var(--danger)' }}>*</span>
+            Task Title {isCEO && <span style={{ color: 'var(--danger)' }}>*</span>}
           </label>
           <input
             type="text"
@@ -133,8 +155,9 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
             placeholder="e.g., Implement OAuth2 integration"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            required
-            autoFocus
+            required={isCEO}
+            disabled={!isCEO && isEdit}
+            autoFocus={isCEO}
           />
         </div>
 
@@ -146,6 +169,7 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
             placeholder="Provide context, acceptance criteria, or notes..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            disabled={!isCEO && isEdit}
           />
         </div>
 
@@ -160,7 +184,7 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
               <option value={TaskStatus.PENDING}>Pending</option>
               <option value={TaskStatus.IN_PROGRESS}>In Progress</option>
               <option value={TaskStatus.COMPLETED}>Completed</option>
-              <option value={TaskStatus.CANCELLED}>Cancelled</option>
+              {isCEO && <option value={TaskStatus.CANCELLED}>Cancelled</option>}
             </select>
           </div>
 
@@ -170,6 +194,7 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
               className="form-select"
               value={priority}
               onChange={(e) => setPriority(e.target.value)}
+              disabled={!isCEO && isEdit}
             >
               <option value={TaskPriority.LOW}>Low</option>
               <option value={TaskPriority.MEDIUM}>Medium</option>
@@ -187,6 +212,7 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
               className="form-input"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
+              disabled={!isCEO && isEdit}
             />
           </div>
 
@@ -196,6 +222,7 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
               className="form-select"
               value={categoryId}
               onChange={(e) => setCategoryId(e.target.value)}
+              disabled={!isCEO && isEdit}
             >
               <option value="">None (Uncategorized)</option>
               {categories.map((cat) => (
@@ -207,19 +234,25 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
           </div>
         </div>
 
-        <div className="form-group">
-          <label className="form-label">Assignee (User ID)</label>
-          <input
-            type="number"
-            min="1"
-            className="form-input"
-            placeholder="Assignee User ID (optional)"
-            value={assignedToId}
-            onChange={(e) => setAssignedToId(e.target.value)}
-          />
-        </div>
+        {isCEO && (
+          <div className="form-group">
+            <label className="form-label">Assign To</label>
+            <select
+              className="form-select"
+              value={assignedToId}
+              onChange={(e) => setAssignedToId(e.target.value)}
+            >
+              <option value="">Select Employee (Optional)</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.name} ({emp.email})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
-        {availableTags.length > 0 && (
+        {availableTags.length > 0 && isCEO && (
           <div className="form-group">
             <label className="form-label">Tags</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
@@ -263,3 +296,4 @@ export const TaskModal = ({ isOpen, onClose, task = null, onSuccess }) => {
     </Modal>
   );
 };
+

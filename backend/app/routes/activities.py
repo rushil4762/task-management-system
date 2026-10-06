@@ -37,6 +37,7 @@ async def get_task_activities(
         db=db,
         task_id=task_id,
         user_id=current_user.id,
+        role=current_user.role,
         limit=limit,
         offset=offset,
     )

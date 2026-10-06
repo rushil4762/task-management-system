@@ -35,21 +35,25 @@ async def get_category(
     db: AsyncSession,
     category_id: int,
     user_id: int,
+    is_employee: bool = False,
 ) -> Category | None:
+    target_user_id = None if is_employee else user_id
     return await category_repository.get_category_by_id(
         db=db,
         category_id=category_id,
-        user_id=user_id,
+        user_id=target_user_id,
     )
 
 
 async def get_categories(
     db: AsyncSession,
     user_id: int,
+    is_employee: bool = False,
 ) -> list[Category]:
+    target_user_id = None if is_employee else user_id
     return await category_repository.get_categories(
         db=db,
-        user_id=user_id,
+        user_id=target_user_id,
     )
 
 

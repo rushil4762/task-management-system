@@ -7,10 +7,13 @@ import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { EmptyState } from '../../components/common/EmptyState';
 import { LoadingScreen } from '../../components/common/Spinner';
 import { useToast } from '../../hooks/useToast';
+import { useAuth } from '../../hooks/useAuth';
 
 export const CategoriesPage = () => {
+  const { isCEO } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
+
 
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -126,10 +129,12 @@ export const CategoriesPage = () => {
           </p>
         </div>
 
-        <button className="btn btn-primary" onClick={handleOpenCreate}>
-          <Plus size={16} />
-          <span>New Category</span>
-        </button>
+        {isCEO && (
+          <button className="btn btn-primary" onClick={handleOpenCreate}>
+            <Plus size={16} />
+            <span>New Category</span>
+          </button>
+        )}
       </div>
 
       {/* Categories Grid */}
@@ -139,12 +144,18 @@ export const CategoriesPage = () => {
         <EmptyState
           icon={FolderTree}
           title="No categories created yet"
-          description="Create your first category to group your tasks logically."
+          description={
+            isCEO
+              ? 'Create your first category to group your tasks logically.'
+              : 'No categories are currently available.'
+          }
           action={
-            <button className="btn btn-primary" onClick={handleOpenCreate}>
-              <Plus size={16} />
-              <span>Create Category</span>
-            </button>
+            isCEO ? (
+              <button className="btn btn-primary" onClick={handleOpenCreate}>
+                <Plus size={16} />
+                <span>Create Category</span>
+              </button>
+            ) : null
           }
         />
       ) : (
@@ -155,22 +166,24 @@ export const CategoriesPage = () => {
                 <div style={styles.iconCircle}>
                   <FolderTree size={20} color="#06b6d4" />
                 </div>
-                <div style={styles.cardActions}>
-                  <button
-                    style={styles.actionBtn}
-                    onClick={() => handleOpenEdit(cat)}
-                    title="Edit category"
-                  >
-                    <Edit2 size={14} />
-                  </button>
-                  <button
-                    style={{ ...styles.actionBtn, color: '#ef4444' }}
-                    onClick={() => handleDeletePrompt(cat)}
-                    title="Delete category"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+                {isCEO && (
+                  <div style={styles.cardActions}>
+                    <button
+                      style={styles.actionBtn}
+                      onClick={() => handleOpenEdit(cat)}
+                      title="Edit category"
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                    <button
+                      style={{ ...styles.actionBtn, color: '#ef4444' }}
+                      onClick={() => handleDeletePrompt(cat)}
+                      title="Delete category"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>

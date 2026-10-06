@@ -49,4 +49,10 @@ export const tasksApi = {
     const response = await client.post(`/tasks/${id}/tags`, { tag_ids: tagIds });
     return response.data;
   },
+
+  assignTask: async (id, assignedToId) => {
+    const response = await client.patch(`/tasks/${id}/assign`, { assigned_to_id: assignedToId });
+    return response.data;
+  },
 };
+

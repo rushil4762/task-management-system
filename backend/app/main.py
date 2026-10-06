@@ -17,6 +17,7 @@ from app.routes.dashboard import router as dashboard_router
 from app.routes.notifications import router as notification_router
 from app.routes.tags import router as tag_router
 from app.routes.tasks import router as task_router
+from app.routes.users import router as user_router
 
 # Configure application logging
 logging.basicConfig(
@@ -73,6 +74,7 @@ app.include_router(comment_router)
 app.include_router(activity_router)
 app.include_router(dashboard_router)
 app.include_router(notification_router)
+app.include_router(user_router)
 
 
 @app.get(

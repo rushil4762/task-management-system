@@ -11,6 +11,7 @@ from app.models.task import Task, TaskPriority, TaskStatus
 async def get_task_metrics(
     db: AsyncSession,
     user_id: int,
+    is_employee: bool = False,
 ) -> dict[str, Any]:
     """
     Execute a single database-level aggregate query computing task status counts,
@@ -20,6 +21,8 @@ async def get_task_metrics(
     start_of_today = datetime.combine(now_utc.date(), time.min, tzinfo=timezone.utc)
     end_of_today = datetime.combine(now_utc.date(), time.max, tzinfo=timezone.utc)
     end_of_week = start_of_today + timedelta(days=7)
+
+    task_user_filter = Task.assigned_to_id == user_id if is_employee else Task.user_id == user_id
 
     stmt = select(
         func.count(Task.id).label("total"),
@@ -81,7 +84,7 @@ async def get_task_metrics(
                 )
             )
         ).label("upcoming"),
-    ).where(Task.user_id == user_id)
+    ).where(task_user_filter)
 
     result = await db.execute(stmt)
     row = result.mappings().one()
@@ -120,11 +123,14 @@ async def get_task_metrics(
 async def get_category_metrics(
     db: AsyncSession,
     user_id: int,
+    is_employee: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Return task counts grouped by category for the specified user.
     Also includes uncategorized tasks if any exist.
     """
+    task_user_filter = Task.assigned_to_id == user_id if is_employee else Task.user_id == user_id
+
     stmt = (
         select(
             Category.id.label("category_id"),
@@ -135,13 +141,14 @@ async def get_category_metrics(
             Task,
             and_(
                 Task.category_id == Category.id,
-                Task.user_id == user_id,
+                task_user_filter,
             ),
         )
-        .where(Category.user_id == user_id)
-        .group_by(Category.id, Category.name)
-        .order_by(Category.name.asc())
     )
+    if not is_employee:
+        stmt = stmt.where(Category.user_id == user_id)
+    stmt = stmt.group_by(Category.id, Category.name).order_by(Category.name.asc())
+
     result = await db.execute(stmt)
     category_counts = [
         {
@@ -153,7 +160,7 @@ async def get_category_metrics(
     ]
 
     uncategorized_stmt = select(func.count(Task.id)).where(
-        Task.user_id == user_id,
+        task_user_filter,
         Task.category_id.is_(None),
     )
     uncategorized_res = await db.execute(uncategorized_stmt)
@@ -176,19 +183,21 @@ async def get_completion_trend(
     user_id: int,
     start_date: date | None = None,
     end_date: date | None = None,
+    is_employee: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Aggregate completed tasks grouped by date using database-level grouping.
     Optionally filters within [start_date, end_date].
     """
     date_col = func.date(Task.completed_at)
+    task_user_filter = Task.assigned_to_id == user_id if is_employee else Task.user_id == user_id
     query = (
         select(
             date_col.label("date"),
             func.count(Task.id).label("completed"),
         )
         .where(
-            Task.user_id == user_id,
+            task_user_filter,
             Task.status == TaskStatus.COMPLETED,
             Task.completed_at.isnot(None),
         )

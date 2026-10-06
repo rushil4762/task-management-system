@@ -50,6 +50,7 @@ from app.schemas.task import (
     BulkDeleteRequest,
     BulkDeleteResponse,
     SortOrder,
+    TaskAssignRequest,
     TaskBase,
     TaskCreate,
     TaskListResponse,
@@ -58,6 +59,7 @@ from app.schemas.task import (
     TaskUpdate,
 )
 from app.schemas.user import (
+    EmployeeResponse,
     UserBase,
     UserCreate,
     UserResponse,
@@ -67,6 +69,7 @@ __all__ = [
     "TaskBase",
     "TaskCreate",
     "TaskUpdate",
+    "TaskAssignRequest",
     "TaskResponse",
     "TaskListResponse",
     "TaskSortBy",
@@ -76,6 +79,7 @@ __all__ = [
     "UserBase",
     "UserCreate",
     "UserResponse",
+    "EmployeeResponse",
     "LoginRequest",
     "TokenResponse",
     "RefreshTokenRequest",

@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
+import enum
 from typing import TYPE_CHECKING, List
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -15,6 +16,9 @@ if TYPE_CHECKING:
     from app.models.task import Task
 
 
+class UserRole(str, enum.Enum):
+    CEO = "CEO"
+    EMPLOYEE = "EMPLOYEE"
 
 
 class User(Base):
@@ -40,6 +44,14 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
+    )
+
+    role: Mapped[UserRole] = mapped_column(
+        SAEnum(UserRole, name="userrole", native_enum=True),
+        default=UserRole.EMPLOYEE,
+        server_default=UserRole.EMPLOYEE.value,
+        nullable=False,
+        index=True,
     )
 
     is_active: Mapped[bool] = mapped_column(
@@ -107,5 +119,4 @@ class User(Base):
 
 
     def __repr__(self) -> str:
-
-        return f"<User id={self.id} email={self.email!r} active={self.is_active}>"
+        return f"<User id={self.id} email={self.email!r} role={self.role.value} active={self.is_active}>"

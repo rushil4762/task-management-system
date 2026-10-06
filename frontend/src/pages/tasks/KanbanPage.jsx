@@ -7,11 +7,14 @@ import { TaskModal } from '../../components/tasks/TaskModal';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { LoadingScreen } from '../../components/common/Spinner';
 import { useToast } from '../../hooks/useToast';
+import { useAuth } from '../../hooks/useAuth';
 import { TaskStatus } from '../../utils/constants';
 
 export const KanbanPage = () => {
+  const { isCEO } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
+
 
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -126,17 +129,19 @@ export const KanbanPage = () => {
             <CheckSquare size={16} />
             <span>List View</span>
           </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              setTaskToEdit(null);
-              setPresetStatus(null);
-              setIsModalOpen(true);
-            }}
-          >
-            <Plus size={16} />
-            <span>New Task</span>
-          </button>
+          {isCEO && (
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                setTaskToEdit(null);
+                setPresetStatus(null);
+                setIsModalOpen(true);
+              }}
+            >
+              <Plus size={16} />
+              <span>New Task</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -150,7 +155,7 @@ export const KanbanPage = () => {
           onDelete={handleDeletePrompt}
           onToggleComplete={handleToggleComplete}
           onMoveTask={handleMoveTask}
-          onQuickAdd={handleQuickAdd}
+          onQuickAdd={isCEO ? handleQuickAdd : undefined}
         />
       )}
 

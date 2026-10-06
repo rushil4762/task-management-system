@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -47,12 +47,20 @@ class TaskActivity(Base):
         nullable=False,
     )
 
+    meta_data: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata",
+        JSON,
+        nullable=True,
+        default=dict,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
         nullable=False,
     )
+
 
     task: Mapped["Task"] = relationship(
         "Task",
@@ -64,6 +72,11 @@ class TaskActivity(Base):
         back_populates="activities",
         lazy="selectin",
     )
+
+    def __init__(self, **kwargs: Any) -> None:
+        if "metadata" in kwargs and "meta_data" not in kwargs:
+            kwargs["meta_data"] = kwargs.pop("metadata")
+        super().__init__(**kwargs)
 
     def __repr__(self) -> str:
         return f"<TaskActivity id={self.id} task_id={self.task_id} action={self.action!r}>"

@@ -10,6 +10,7 @@ from app.repositories import (
     activity_repository,
     comment_repository,
     task_repository,
+    user_repository,
 )
 from app.schemas.activity import TaskActivityAction
 from app.schemas.comment import CommentCreate, CommentUpdate
@@ -45,11 +46,14 @@ async def add_comment(
     created_comment = await comment_repository.create_comment(db, comment)
 
     # 3. Append activity record for comment addition
+    actor = await user_repository.get_user_by_id(db, user_id)
+    actor_name = actor.name if actor else "User"
     activity = TaskActivity(
         task_id=task_id,
         user_id=user_id,
         action=TaskActivityAction.COMMENT_ADDED.value,
-        description="A new comment was added",
+        description=f"{actor_name} added a comment",
+        meta_data={"comment_id": created_comment.id},
     )
     await activity_repository.create_activity(db, activity, commit=True)
 

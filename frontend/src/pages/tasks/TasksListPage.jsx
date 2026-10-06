@@ -16,11 +16,14 @@ import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { EmptyState } from '../../components/common/EmptyState';
 import { LoadingScreen } from '../../components/common/Spinner';
 import { useToast } from '../../hooks/useToast';
+import { useAuth } from '../../hooks/useAuth';
 
 export const TasksListPage = () => {
+  const { isCEO } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
+
 
   const [tasks, setTasks] = useState([]);
   const [total, setTotal] = useState(0);
@@ -151,9 +154,11 @@ export const TasksListPage = () => {
       {/* Top Action Bar */}
       <div style={styles.actionBar}>
         <div>
-          <h1 style={styles.pageTitle}>Tasks</h1>
+          <h1 style={styles.pageTitle}>{isCEO ? 'Tasks' : 'My Assigned Tasks'}</h1>
           <p style={styles.pageSubtitle}>
-            Manage, filter, and track all your tasks across workspaces
+            {isCEO
+              ? 'Manage, assign, and track all organizational tasks'
+              : 'View, progress, and complete tasks assigned to you'}
           </p>
         </div>
 
@@ -166,16 +171,18 @@ export const TasksListPage = () => {
             <Kanban size={16} />
             <span>Kanban View</span>
           </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              setTaskToEdit(null);
-              setIsModalOpen(true);
-            }}
-          >
-            <Plus size={16} />
-            <span>New Task</span>
-          </button>
+          {isCEO && (
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                setTaskToEdit(null);
+                setIsModalOpen(true);
+              }}
+            >
+              <Plus size={16} />
+              <span>New Task</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -193,18 +200,24 @@ export const TasksListPage = () => {
         <EmptyState
           icon={CheckSquare}
           title="No tasks match your filters"
-          description="Try clearing your filters or create a new task to get started."
+          description={
+            isCEO
+              ? 'Try clearing your filters or create a new task to get started.'
+              : 'No tasks are currently assigned to you matching these filters.'
+          }
           action={
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                setTaskToEdit(null);
-                setIsModalOpen(true);
-              }}
-            >
-              <Plus size={16} />
-              <span>Create Task</span>
-            </button>
+            isCEO ? (
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setTaskToEdit(null);
+                  setIsModalOpen(true);
+                }}
+              >
+                <Plus size={16} />
+                <span>Create Task</span>
+              </button>
+            ) : null
           }
         />
       ) : (

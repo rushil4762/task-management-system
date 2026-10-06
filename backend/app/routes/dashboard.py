@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.activity import ActivityListResponse
 from app.schemas.dashboard import CompletionTrendPoint, DashboardSummaryResponse
 from app.services import dashboard_service
@@ -34,9 +34,11 @@ async def get_dashboard_summary(
     - **Category Summary**: task counts grouped by category, including uncategorized tasks
     - **Productivity Trend**: recent 14-day completion chart data points
     """
+    is_employee = current_user.role == UserRole.EMPLOYEE
     return await dashboard_service.get_dashboard_summary(
         db=db,
         user_id=current_user.id,
+        is_employee=is_employee,
     )
 
 
@@ -67,12 +69,14 @@ async def get_completion_trend(
     Returns completed task counts aggregated by date using database grouping.
     Accepts optional `start_date` and `end_date` (or defaults to `days` lookback).
     """
+    is_employee = current_user.role == UserRole.EMPLOYEE
     return await dashboard_service.get_completion_trend(
         db=db,
         user_id=current_user.id,
         start_date=start_date,
         end_date=end_date,
         days=days,
+        is_employee=is_employee,
     )
 
 

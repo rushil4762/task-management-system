@@ -77,14 +77,35 @@ export const DashboardPage = () => {
   const categories = summary?.category_summary || [];
   const trend = summary?.completion_trend || [];
 
+  const isCEO = user?.role === 'CEO';
+
   return (
     <div style={styles.container}>
       {/* Welcome Banner */}
       <div style={styles.welcomeBanner}>
         <div>
-          <h1 style={styles.welcomeTitle}>Welcome back, {user?.name || 'Explorer'}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 style={styles.welcomeTitle}>Welcome back, {user?.name || 'Explorer'}</h1>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '6px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                backgroundColor: isCEO ? 'rgba(129, 140, 248, 0.2)' : 'rgba(52, 211, 153, 0.2)',
+                color: isCEO ? '#a5b4fc' : '#6ee7b7',
+                border: `1px solid ${isCEO ? 'rgba(129, 140, 248, 0.4)' : 'rgba(52, 211, 153, 0.4)'}`,
+              }}
+            >
+              {user?.role || 'EMPLOYEE'}
+            </span>
+          </div>
           <p style={styles.welcomeSubtitle}>
-            Here is your productivity overview and task status breakdown for today.
+            {isCEO
+              ? 'Here is your organization-wide productivity overview and task management dashboard.'
+              : 'Here is your assigned tasks overview and personal productivity metrics.'}
           </p>
         </div>
         <div style={styles.dateBadge}>
